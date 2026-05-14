@@ -72,7 +72,7 @@ func GoogleCallback(cfg *config.Config) gin.HandlerFunc {
 			UserID: user.ID,
 			Email:  user.Email,
 			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(72 * time.Hour)),
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 			},
 		}
 		signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
@@ -81,6 +81,10 @@ func GoogleCallback(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"token": signed, "user": user})
+		frontendURL := cfg.FrontendURL
+		if frontendURL == "" {
+			frontendURL = "http://localhost:5173"
+		}
+		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"/auth/callback?token="+signed)
 	}
 }
