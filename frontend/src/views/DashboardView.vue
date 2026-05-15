@@ -1,7 +1,7 @@
 ﻿<template>
   <div class="page">
     <h1 class="page-title">📊 總覽</h1>
-    <div class="stats-grid" v-if="stats">
+    <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-label">總應募數</div>
         <div class="stat-value">{{ stats.total_applied }}</div>
@@ -12,7 +12,7 @@
       </div>
       <div class="stat-card">
         <div class="stat-label">總中選率</div>
-        <div class="stat-value highlight">{{ stats.win_rate }}%</div>
+        <div class="stat-value highlight">{{ stats.win_rate.toFixed(1) }}%</div>
       </div>
     </div>
     <div class="member-list">
@@ -25,7 +25,7 @@
           @click="goToMember(m.member_name)"
         >
           {{ m.member_name }}
-          <span class="rate">{{ m.win_rate }}%</span>
+          <span class="rate">{{ m.win_rate.toFixed(1) }}%</span>
         </div>
       </div>
     </div>
@@ -38,13 +38,17 @@ import { useRouter } from 'vue-router'
 import { getStats, getStatsByMember } from '../api/index'
 
 const router = useRouter()
-const stats = ref(null)
+const stats = ref({ total_applied: 0, total_won: 0, win_rate: 0 })
 const members = ref([])
 
 onMounted(async () => {
-  const [s, m] = await Promise.all([getStats(), getStatsByMember()])
-  stats.value = s.data
-  members.value = m.data
+  try {
+    const [s, m] = await Promise.all([getStats(), getStatsByMember()])
+    stats.value = s.data
+    members.value = m.data ?? []
+  } catch {
+    // 保持預設 0 值
+  }
 })
 
 function goToMember(name) {

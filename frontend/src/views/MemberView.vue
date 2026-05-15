@@ -67,7 +67,8 @@ async function loadData() {
   ])
   byDate.value = d.data.filter(x => x.member_name === name.value)
   bySession.value = s.data.filter(x => x.member_name === name.value)
-  records.value = r.data.filter(x => x.member_name === name.value)
+  const allRecords = r.data.data ?? r.data
+  records.value = allRecords.filter(x => x.member_name === name.value)
 }
 
 onMounted(loadData)

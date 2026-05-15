@@ -29,6 +29,7 @@ export const getStatsBySession = () => api.get('/api/stats/by-session')
 export const getStatsByMember = () => api.get('/api/stats/by-member')
 export const getRecords = (params = {}) => api.get('/api/records', { params: { page_size: 100, ...params } })
 export const getMe = () => api.get('/api/me')
+export const getScrapeToken = () => api.get('/api/scrape-token')
 export const triggerScrape = (cookie) => api.post('/api/scrape', { cookie })
 
 export default api

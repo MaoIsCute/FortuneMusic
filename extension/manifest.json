@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Fortune Tracker",
+  "version": "1.0",
+  "description": "自動取得 Fortune Music Cookie 並同步抽選記錄",
+  "permissions": [
+    "storage",
+    "scripting",
+    "tabs",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://fortunemusic.jp/*",
+    "http://localhost:8080/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "popup.html"
+  },
+  "action": {
+    "default_title": "Fortune Tracker"
+  }
+}

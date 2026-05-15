@@ -26,7 +26,7 @@ const filterMember = ref('')
 
 onMounted(async () => {
   const res = await getRecords()
-  records.value = res.data
+  records.value = res.data.data ?? res.data
 })
 
 const memberList = computed(() => [...new Set(records.value.map(r => r.member_name))])

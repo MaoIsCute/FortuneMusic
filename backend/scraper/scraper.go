@@ -3,64 +3,304 @@ package scraper
 import (
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
-	"fortune-tracker/models"
-
 	"github.com/PuerkitoBio/goquery"
+
+	"fortune-tracker/db"
+	"fortune-tracker/models"
 )
 
-// targetURL is the page listing lottery/fortune results to scrape.
-// Replace with the actual target and adjust selectors below.
-const targetURL = "https://example.com/fortune-results"
+const (
+	baseFortune = "https://fortunemusic.jp"
+	baseMain    = "https://main.fortunemusic.jp"
+	applyList   = "/mypage/apply_list/"
+	applyDetail = "/mypage/apply_detail/"
+)
 
-func Scrape(userID uint) ([]models.Record, error) {
-	resp, err := http.Get(targetURL)
+type Result struct {
+	NewRecords int    `json:"new_records"`
+	Skipped    int    `json:"skipped"`
+	Message    string `json:"message"`
+	Debug      string `json:"debug,omitempty"`
+}
+
+func Run(userID uint, cookieFortune, cookieMain string) (*Result, error) {
+	// cookiejar 讓 client 自動依 domain 帶對的 cookie，
+	// 也處理 SSO redirect 時跨 domain 換 cookie 的問題。
+	client := buildClient(cookieFortune, cookieMain)
+	var dbg []string
+
+	dbg = append(dbg, fmt.Sprintf("fortune cookies: [%s]", strings.Join(cookieNames(cookieFortune), ",")))
+	if cookieMain != "" {
+		dbg = append(dbg, fmt.Sprintf("main cookies: [%s]", strings.Join(cookieNames(cookieMain), ",")))
+	}
+
+	// 先試 fortunemusic.jp（jar 會在 redirect 時自動帶 main 的 cookie）
+	orderIDs, pageTitle, hrefs, err := fetchOrderIDs(client, baseFortune+applyList)
+	dbg = append(dbg, fmt.Sprintf("[fortune] title=%q orders=%d login=%v err=%v", pageTitle, len(orderIDs), isLoginPage(pageTitle), err))
+
+	usedBase := baseFortune
+
+	// 若還是失敗，直接試 main.fortunemusic.jp 幾個可能路徑
+	if (err != nil || isLoginPage(pageTitle) || len(orderIDs) == 0) && cookieMain != "" {
+		for _, candidate := range []string{
+			baseMain + applyList,
+			baseMain + "/secure/apply/applyList.php?site=F",
+			baseMain + "/secure/ticket/applyList.php?site=F",
+		} {
+			idsM, titleM, hrefsM, errM := fetchOrderIDs(client, candidate)
+			dbg = append(dbg, fmt.Sprintf("[main] url=%s title=%q orders=%d login=%v err=%v", candidate, titleM, len(idsM), isLoginPage(titleM), errM))
+			if !isLoginPage(titleM) && len(hrefsM) > 0 {
+				dbg = append(dbg, "[main] links: "+hrefsM)
+			}
+			if errM == nil && len(idsM) > 0 {
+				orderIDs = idsM
+				hrefs = hrefsM
+				usedBase = baseMain
+				break
+			}
+		}
+	}
+
+	result := &Result{}
+	result.Debug = strings.Join(dbg, " ｜ ")
+	if len(orderIDs) == 0 && hrefs != "" {
+		result.Debug += " ｜ links: " + hrefs
+	}
+
+	for _, orderID := range orderIDs {
+		detailURL := fmt.Sprintf("%s%s%s/", usedBase, applyDetail, orderID)
+		records, err := fetchOrderDetail(client, detailURL)
+		if err != nil {
+			fmt.Printf("[scraper] 訂單 %s 爬取失敗: %v\n", orderID, err)
+			continue
+		}
+
+		for _, rec := range records {
+			rec.UserID = userID
+			rec.ScrapedAt = time.Now()
+
+			var existing models.Record
+			if db.DB.Where("user_id = ? AND source_url = ?", userID, rec.SourceURL).First(&existing).Error == nil {
+				result.Skipped++
+				continue
+			}
+
+			if err := db.DB.Create(&rec).Error; err != nil {
+				fmt.Printf("[scraper] 寫入失敗: %v\n", err)
+				continue
+			}
+			result.NewRecords++
+		}
+	}
+
+	result.Message = fmt.Sprintf("完成！新增 %d 筆，跳過 %d 筆", result.NewRecords, result.Skipped)
+	return result, nil
+}
+
+// buildClient 建立帶有 cookiejar 的 HTTP client，
+// 讓 SSO redirect 跨 domain 時也能自動帶對的 cookie。
+func buildClient(cookieFortune, cookieMain string) *http.Client {
+	jar, _ := cookiejar.New(nil)
+
+	if cookieFortune != "" {
+		u, _ := url.Parse("https://fortunemusic.jp")
+		jar.SetCookies(u, parseCookies(cookieFortune))
+	}
+	if cookieMain != "" {
+		u, _ := url.Parse("https://main.fortunemusic.jp")
+		jar.SetCookies(u, parseCookies(cookieMain))
+	}
+
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Jar:     jar,
+	}
+}
+
+func parseCookies(cookieStr string) []*http.Cookie {
+	var cookies []*http.Cookie
+	for _, part := range strings.Split(cookieStr, ";") {
+		part = strings.TrimSpace(part)
+		idx := strings.Index(part, "=")
+		if idx <= 0 {
+			continue
+		}
+		cookies = append(cookies, &http.Cookie{
+			Name:  strings.TrimSpace(part[:idx]),
+			Value: strings.TrimSpace(part[idx+1:]),
+		})
+	}
+	return cookies
+}
+
+func fetchDoc(client *http.Client, targetURL string) (*goquery.Document, string, error) {
+	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", targetURL, err)
+		return nil, "", err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "ja,en-US;q=0.9,en;q=0.8")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 
+	finalURL := resp.Request.URL.String()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
+		return nil, finalURL, fmt.Errorf("HTTP %d: %s", resp.StatusCode, targetURL)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	return doc, finalURL, err
+}
+
+func fetchOrderIDs(client *http.Client, targetURL string) ([]string, string, string, error) {
+	doc, finalURL, err := fetchDoc(client, targetURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse html: %w", err)
+		return nil, "", "", err
 	}
 
-	var records []models.Record
-	now := time.Now()
+	pageTitle := strings.TrimSpace(doc.Find("title").Text())
+	pageTitle = fmt.Sprintf("%s (→%s)", pageTitle, finalURL)
 
-	// Adjust the selector to match the actual page structure.
-	doc.Find("table.result-table tbody tr").Each(func(i int, row *goquery.Selection) {
-		cells := row.Find("td")
-		if cells.Length() < 6 {
-			return
+	var orderIDs []string
+	seen := map[string]bool{}
+	re := regexp.MustCompile(`/mypage/apply_detail/(\d+)/?`)
+
+	var sampleHrefs []string
+	doc.Find("a[href]").Each(func(_ int, s *goquery.Selection) {
+		href, _ := s.Attr("href")
+		if m := re.FindStringSubmatch(href); len(m) == 2 && !seen[m[1]] {
+			seen[m[1]] = true
+			orderIDs = append(orderIDs, m[1])
 		}
-		records = append(records, models.Record{
-			UserID:       userID,
-			EventName:    clean(cells.Eq(0).Text()),
-			MemberName:   clean(cells.Eq(1).Text()),
-			EventDate:    clean(cells.Eq(2).Text()),
-			Session:      clean(cells.Eq(3).Text()),
-			AppliedCount: parseInt(cells.Eq(4).Text()),
-			WonCount:     parseInt(cells.Eq(5).Text()),
-			SourceURL:    targetURL,
-			ScrapedAt:    now,
-		})
+		if len(sampleHrefs) < 20 && href != "" && href != "#" {
+			sampleHrefs = append(sampleHrefs, href)
+		}
 	})
+
+	return orderIDs, pageTitle, strings.Join(sampleHrefs, " | "), nil
+}
+
+func fetchOrderDetail(client *http.Client, targetURL string) ([]*models.Record, error) {
+	doc, _, err := fetchDoc(client, targetURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var records []*models.Record
+	doc.Find(".apply-item, .order-item, tr.item-row").Each(func(_ int, s *goquery.Selection) {
+		if rec := parseItem(s, targetURL); rec != nil {
+			records = append(records, rec)
+		}
+	})
+
+	if len(records) == 0 {
+		records = parseByText(doc, targetURL)
+	}
+
 	return records, nil
 }
 
-func clean(s string) string {
-	return strings.TrimSpace(s)
+func isLoginPage(title string) bool {
+	t := strings.TrimSpace(title)
+	if idx := strings.Index(t, " (→"); idx > 0 {
+		t = t[:idx]
+	}
+	return t == "forTUNE music" ||
+		strings.Contains(strings.ToLower(t), "login") ||
+		strings.Contains(t, "ログイン")
 }
 
-func parseInt(s string) int {
-	var n int
-	fmt.Sscanf(strings.TrimSpace(s), "%d", &n)
-	return n
+func cookieNames(cookieStr string) []string {
+	var names []string
+	for _, part := range strings.Split(cookieStr, ";") {
+		part = strings.TrimSpace(part)
+		if idx := strings.Index(part, "="); idx > 0 {
+			names = append(names, part[:idx])
+		}
+	}
+	return names
+}
+
+func parseItem(s *goquery.Selection, sourceURL string) *models.Record {
+	productName := strings.TrimSpace(s.Find(".product-name, .item-name, td:first-child").First().Text())
+	if productName == "" {
+		productName = strings.TrimSpace(s.Text())
+	}
+
+	member, date, session, eventName := parseProductName(productName)
+	if member == "" {
+		return nil
+	}
+
+	won := 0
+	if strings.Contains(s.Text(), "当選") {
+		won = 1
+	}
+
+	appliedText := strings.TrimSpace(s.Find(".applied-count, td.count").First().Text())
+	applied := 0
+	if n, err := strconv.Atoi(regexp.MustCompile(`\d+`).FindString(appliedText)); err == nil {
+		applied = n
+	}
+
+	return &models.Record{
+		EventName:    eventName,
+		MemberName:   member,
+		EventDate:    date,
+		Session:      session,
+		AppliedCount: applied,
+		WonCount:     won,
+		SourceURL:    sourceURL,
+	}
+}
+
+func parseByText(doc *goquery.Document, sourceURL string) []*models.Record {
+	var records []*models.Record
+	seen := map[string]bool{}
+	re := regexp.MustCompile(`[\p{Han}\p{Hiragana}\p{Katakana}a-zA-Z]+【\d{1,2}/\d{1,2}\s+第\d+部】.+`)
+
+	doc.Find("*").Each(func(_ int, s *goquery.Selection) {
+		text := strings.TrimSpace(s.Text())
+		if re.MatchString(text) && len(text) < 200 {
+			member, date, session, eventName := parseProductName(text)
+			if member == "" {
+				return
+			}
+			key := member + date + session
+			if seen[key] {
+				return
+			}
+			seen[key] = true
+			records = append(records, &models.Record{
+				EventName:  eventName,
+				MemberName: member,
+				EventDate:  date,
+				Session:    session,
+				SourceURL:  sourceURL,
+			})
+		}
+	})
+
+	return records
+}
+
+func parseProductName(name string) (member, date, session, eventName string) {
+	re := regexp.MustCompile(`^(.+?)【(\d{1,2}/\d{1,2})\s+(第\d+部)】(.+)$`)
+	m := re.FindStringSubmatch(strings.TrimSpace(name))
+	if len(m) != 5 {
+		return
+	}
+	return strings.TrimSpace(m[1]), m[2], m[3], strings.TrimSpace(m[4])
 }

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <title>Fortune Tracker</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="header">
+    <span class="logo">🎵 Fortune Tracker</span>
+    <button id="settingsBtn" class="icon-btn" title="設定">⚙️</button>
+  </div>
+
+  <!-- 設定頁 -->
+  <div id="setupPage">
+    <p class="hint">首次使用請填入以下資訊：</p>
+    <label>後端網址</label>
+    <input id="backendUrl" type="text" placeholder="http://localhost:8080" />
+    <label>Scrape Token（從網頁 App 取得）</label>
+    <input id="scrapeToken" type="text" placeholder="貼上 Token..." />
+    <button id="saveBtn" class="btn primary">儲存</button>
+  </div>
+
+  <!-- 主頁 -->
+  <div id="mainPage" style="display:none">
+    <div id="status" class="status"></div>
+    <button id="syncBtn"   class="btn primary">同步</button>
+    <button id="scrapeBtn" class="btn success" style="display:none">開始抓取</button>
+    <div id="result" class="result" style="display:none"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
