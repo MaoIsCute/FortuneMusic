@@ -42,6 +42,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/stats/by-member", handlers.GetStatsByMember)
 		api.GET("/stats/by-date", handlers.GetStatsByDate)
 		api.GET("/stats/by-session", handlers.GetStatsBySession)
+		api.GET("/stats/detail", handlers.GetDetailStats)
 	}
 
 	return r

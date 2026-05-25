@@ -30,6 +30,12 @@ type Result struct {
 	Debug      string `json:"debug,omitempty"`
 }
 
+type orderEntry struct {
+	id         string
+	applyYear  int
+	applyMonth int
+}
+
 func Run(userID uint, cookieFortune, cookieMain string) (*Result, error) {
 	// cookiejar 讓 client 自動依 domain 帶對的 cookie，
 	// 也處理 SSO redirect 時跨 domain 換 cookie 的問題。
@@ -42,25 +48,25 @@ func Run(userID uint, cookieFortune, cookieMain string) (*Result, error) {
 	}
 
 	// 先試 fortunemusic.jp（jar 會在 redirect 時自動帶 main 的 cookie）
-	orderIDs, pageTitle, hrefs, err := fetchOrderIDs(client, baseFortune+applyList)
-	dbg = append(dbg, fmt.Sprintf("[fortune] title=%q orders=%d login=%v err=%v", pageTitle, len(orderIDs), isLoginPage(pageTitle), err))
+	entries, pageTitle, hrefs, err := fetchOrderIDs(client, baseFortune+applyList)
+	dbg = append(dbg, fmt.Sprintf("[fortune] title=%q orders=%d login=%v err=%v", pageTitle, len(entries), isLoginPage(pageTitle), err))
 
 	usedBase := baseFortune
 
 	// 若還是失敗，直接試 main.fortunemusic.jp 幾個可能路徑
-	if (err != nil || isLoginPage(pageTitle) || len(orderIDs) == 0) && cookieMain != "" {
+	if (err != nil || isLoginPage(pageTitle) || len(entries) == 0) && cookieMain != "" {
 		for _, candidate := range []string{
 			baseMain + applyList,
 			baseMain + "/secure/apply/applyList.php?site=F",
 			baseMain + "/secure/ticket/applyList.php?site=F",
 		} {
-			idsM, titleM, hrefsM, errM := fetchOrderIDs(client, candidate)
-			dbg = append(dbg, fmt.Sprintf("[main] url=%s title=%q orders=%d login=%v err=%v", candidate, titleM, len(idsM), isLoginPage(titleM), errM))
+			entriesM, titleM, hrefsM, errM := fetchOrderIDs(client, candidate)
+			dbg = append(dbg, fmt.Sprintf("[main] url=%s title=%q orders=%d login=%v err=%v", candidate, titleM, len(entriesM), isLoginPage(titleM), errM))
 			if !isLoginPage(titleM) && len(hrefsM) > 0 {
 				dbg = append(dbg, "[main] links: "+hrefsM)
 			}
-			if errM == nil && len(idsM) > 0 {
-				orderIDs = idsM
+			if errM == nil && len(entriesM) > 0 {
+				entries = entriesM
 				hrefs = hrefsM
 				usedBase = baseMain
 				break
@@ -70,15 +76,15 @@ func Run(userID uint, cookieFortune, cookieMain string) (*Result, error) {
 
 	result := &Result{}
 	result.Debug = strings.Join(dbg, " ｜ ")
-	if len(orderIDs) == 0 && hrefs != "" {
+	if len(entries) == 0 && hrefs != "" {
 		result.Debug += " ｜ links: " + hrefs
 	}
 
-	for _, orderID := range orderIDs {
-		detailURL := fmt.Sprintf("%s%s%s/", usedBase, applyDetail, orderID)
-		records, err := fetchOrderDetail(client, detailURL)
+	for _, entry := range entries {
+		detailURL := fmt.Sprintf("%s%s%s/", usedBase, applyDetail, entry.id)
+		records, err := fetchOrderDetail(client, detailURL, entry.applyYear, entry.applyMonth)
 		if err != nil {
-			fmt.Printf("[scraper] 訂單 %s 爬取失敗: %v\n", orderID, err)
+			fmt.Printf("[scraper] 訂單 %s 爬取失敗: %v\n", entry.id, err)
 			continue
 		}
 
@@ -164,7 +170,7 @@ func fetchDoc(client *http.Client, targetURL string) (*goquery.Document, string,
 	return doc, finalURL, err
 }
 
-func fetchOrderIDs(client *http.Client, targetURL string) ([]string, string, string, error) {
+func fetchOrderIDs(client *http.Client, targetURL string) ([]orderEntry, string, string, error) {
 	doc, finalURL, err := fetchDoc(client, targetURL)
 	if err != nil {
 		return nil, "", "", err
@@ -173,26 +179,66 @@ func fetchOrderIDs(client *http.Client, targetURL string) ([]string, string, str
 	pageTitle := strings.TrimSpace(doc.Find("title").Text())
 	pageTitle = fmt.Sprintf("%s (→%s)", pageTitle, finalURL)
 
-	var orderIDs []string
+	var entries []orderEntry
 	seen := map[string]bool{}
-	re := regexp.MustCompile(`/mypage/apply_detail/(\d+)/?`)
+	linkRe := regexp.MustCompile(`/mypage/apply_detail/(\d+)/?`)
+	dateRe := regexp.MustCompile(`(\d{4})-(\d{1,2})-\d{1,2}`)
 
 	var sampleHrefs []string
-	doc.Find("a[href]").Each(func(_ int, s *goquery.Selection) {
-		href, _ := s.Attr("href")
-		if m := re.FindStringSubmatch(href); len(m) == 2 && !seen[m[1]] {
-			seen[m[1]] = true
-			orderIDs = append(orderIDs, m[1])
-		}
+	doc.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
+		href, _ := a.Attr("href")
 		if len(sampleHrefs) < 20 && href != "" && href != "#" {
 			sampleHrefs = append(sampleHrefs, href)
 		}
+		m := linkRe.FindStringSubmatch(href)
+		if len(m) < 2 || seen[m[1]] {
+			return
+		}
+		seen[m[1]] = true
+
+		entry := orderEntry{id: m[1]}
+
+		// 從最近的祖先容器中找 応募日時
+		container := a.Closest("tr, li, article, section")
+		if container.Length() == 0 {
+			container = a.Parent()
+		}
+		container.Find("span.hdg").Each(func(_ int, span *goquery.Selection) {
+			if strings.TrimSpace(span.Text()) != "応募日時" {
+				return
+			}
+			tdText := strings.TrimSpace(span.Parent().Text())
+			dateStr := strings.TrimSpace(strings.Replace(tdText, strings.TrimSpace(span.Text()), "", 1))
+			if dm := dateRe.FindStringSubmatch(dateStr); len(dm) >= 3 {
+				entry.applyYear, _ = strconv.Atoi(dm[1])
+				entry.applyMonth, _ = strconv.Atoi(dm[2])
+			}
+		})
+
+		entries = append(entries, entry)
 	})
 
-	return orderIDs, pageTitle, strings.Join(sampleHrefs, " | "), nil
+	return entries, pageTitle, strings.Join(sampleHrefs, " | "), nil
 }
 
-func fetchOrderDetail(client *http.Client, targetURL string) ([]*models.Record, error) {
+// inferEventYear は應募月を基準に活動年分を決定する。
+// 活動月 < 應募月 の場合は翌年（例：12月応募 → 1月活動 = 翌年）
+func inferEventYear(rawDate string, applyYear, applyMonth int) int {
+	if applyYear == 0 {
+		return time.Now().Year()
+	}
+	parts := strings.SplitN(rawDate, "/", 2)
+	eventMonth, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return applyYear
+	}
+	if eventMonth < applyMonth {
+		return applyYear + 1
+	}
+	return applyYear
+}
+
+func fetchOrderDetail(client *http.Client, targetURL string, applyYear, applyMonth int) ([]*models.Record, error) {
 	doc, _, err := fetchDoc(client, targetURL)
 	if err != nil {
 		return nil, err
@@ -200,13 +246,13 @@ func fetchOrderDetail(client *http.Client, targetURL string) ([]*models.Record, 
 
 	var records []*models.Record
 	doc.Find(".apply-item, .order-item, tr.item-row").Each(func(_ int, s *goquery.Selection) {
-		if rec := parseItem(s, targetURL); rec != nil {
+		if rec := parseItem(s, targetURL, applyYear, applyMonth); rec != nil {
 			records = append(records, rec)
 		}
 	})
 
 	if len(records) == 0 {
-		records = parseByText(doc, targetURL)
+		records = parseByText(doc, targetURL, applyYear, applyMonth)
 	}
 
 	return records, nil
@@ -233,7 +279,7 @@ func cookieNames(cookieStr string) []string {
 	return names
 }
 
-func parseItem(s *goquery.Selection, sourceURL string) *models.Record {
+func parseItem(s *goquery.Selection, sourceURL string, applyYear, applyMonth int) *models.Record {
 	productName := strings.TrimSpace(s.Find(".product-name, .item-name, td:first-child").First().Text())
 	if productName == "" {
 		productName = strings.TrimSpace(s.Text())
@@ -255,18 +301,20 @@ func parseItem(s *goquery.Selection, sourceURL string) *models.Record {
 		applied = n
 	}
 
+	eventYear := inferEventYear(date, applyYear, applyMonth)
+	itemURL := fmt.Sprintf("%s#%s|%s|%s", sourceURL, url.QueryEscape(member), date, session)
 	return &models.Record{
 		EventName:    eventName,
 		MemberName:   member,
-		EventDate:    date,
+		EventDate:    fmt.Sprintf("%d/%s", eventYear, date),
 		Session:      session,
 		AppliedCount: applied,
 		WonCount:     won,
-		SourceURL:    sourceURL,
+		SourceURL:    itemURL,
 	}
 }
 
-func parseByText(doc *goquery.Document, sourceURL string) []*models.Record {
+func parseByText(doc *goquery.Document, sourceURL string, applyYear, applyMonth int) []*models.Record {
 	var records []*models.Record
 	seen := map[string]bool{}
 	re := regexp.MustCompile(`[\p{Han}\p{Hiragana}\p{Katakana}a-zA-Z]+【\d{1,2}/\d{1,2}\s+第\d+部】.+`)
@@ -283,12 +331,14 @@ func parseByText(doc *goquery.Document, sourceURL string) []*models.Record {
 				return
 			}
 			seen[key] = true
+			eventYear := inferEventYear(date, applyYear, applyMonth)
+			itemURL := fmt.Sprintf("%s#%s|%s|%s", sourceURL, url.QueryEscape(member), date, session)
 			records = append(records, &models.Record{
 				EventName:  eventName,
 				MemberName: member,
-				EventDate:  date,
+				EventDate:  fmt.Sprintf("%d/%s", eventYear, date),
 				Session:    session,
-				SourceURL:  sourceURL,
+				SourceURL:  itemURL,
 			})
 		}
 	})

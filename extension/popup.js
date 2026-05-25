@@ -18,7 +18,7 @@ async function scrapeFromApplyListPage() {
   function parseProductName(text) {
     const m = text.trim().match(itemRe)
     if (!m) return null
-    return { member_name: m[1].trim(), event_date: m[2], session: m[3], event_name: m[4].trim() }
+    return { member_name: m[1].trim(), raw_date: m[2], session: m[3], event_name: m[4].trim() }
   }
 
   // 確認是否登入（有登入表單 = 未登入）
@@ -27,14 +27,48 @@ async function scrapeFromApplyListPage() {
     return { error: '頁面顯示登入表單，請先登入後再點「開始抓取」' }
   }
 
-  // 從目前 DOM 收集訂單 ID
-  const orderIDs = new Set()
+  // 從目前 DOM 收集訂單 ID、應募日期、單曲資訊
+  const orderInfoMap = {} // orderID → { year, month, singleNum, singleSuffix, singleTitle }
   document.querySelectorAll('a[href]').forEach(a => {
     const m = (a.getAttribute('href') || '').match(/\/mypage\/apply_detail\/(\d+)\/?/)
-    if (m) orderIDs.add(m[1])
+    if (!m || orderInfoMap[m[1]] !== undefined) return
+    const id = m[1]
+    orderInfoMap[id] = null // 佔位，避免重複處理
+
+    const container = a.closest('tr, li, article, section') || a.parentElement
+    if (!container) return
+
+    const info = {}
+
+    // 応募日時
+    container.querySelectorAll('span.hdg').forEach(span => {
+      if (span.textContent.trim() !== '応募日時') return
+      const tdText = span.parentElement.textContent.trim()
+      const dateStr = tdText.replace(span.textContent.trim(), '').trim()
+      const dm = dateStr.match(/(\d{4})-(\d{1,2})-/)
+      if (dm) { info.year = parseInt(dm[1]); info.month = parseInt(dm[2]) }
+    })
+
+    // 單曲號、歌名、應募次數（從 td.tdEvent 解析）
+    const tdEvent = container.querySelector('td.tdEvent')
+    if (tdEvent) {
+      const eventText = tdEvent.textContent.trim()
+      const sm = eventText.match(/(\d+)(st|nd|rd|th)シングル/)
+      const tm = eventText.match(/『(.+?)』/)
+      const rm = eventText.match(/第(\d+)次/)
+      if (sm) {
+        info.singleNum    = sm[1]
+        info.singleSuffix = sm[2]
+        info.singleTitle  = tm ? tm[1] : null
+        info.lotteryRound = rm ? `第${rm[1]}次` : null
+      }
+    }
+
+    if (Object.keys(info).length) orderInfoMap[id] = info
   })
 
-  if (orderIDs.size === 0) {
+  const orderIDs = Object.keys(orderInfoMap)
+  if (orderIDs.length === 0) {
     const title = document.querySelector('title')?.textContent?.trim() || ''
     return { records: [], order_count: 0, title }
   }
@@ -42,7 +76,6 @@ async function scrapeFromApplyListPage() {
   // same-origin fetch 各申請詳情
   const parser = new DOMParser()
   const records = []
-  const seen    = new Set()
 
   for (const id of orderIDs) {
     let res
@@ -51,10 +84,12 @@ async function scrapeFromApplyListPage() {
 
     const detailDoc = parser.parseFromString(await res.text(), 'text/html')
     const sourceBase = `https://fortunemusic.jp/mypage/apply_detail/${id}/`
+    const applyInfo  = orderInfoMap[id]
 
-    // 每個 <tr>（排除合計行 .tblCatLast）是一筆記錄
-    // td:first-child → 成員名【日/月 第N部】活動名
-    // td.tdQua 第1個 → 応募数，第2個 → 当選数
+    // 同一張單內若有相同 member+date+session 的多行（部分中選時逐筆顯示）
+    // 用 aggregated 累加，避免 seen 跳過後續行導致數據丟失
+    const aggregated = {}
+
     detailDoc.querySelectorAll('tbody tr:not(.tblCatLast)').forEach(row => {
       const nameTd = row.querySelector('td:first-child')
       if (!nameTd) return
@@ -62,19 +97,49 @@ async function scrapeFromApplyListPage() {
       const parsed = parseProductName(nameTd.textContent)
       if (!parsed) return
 
-      const key = parsed.member_name + parsed.event_date + parsed.session
-      if (seen.has(key)) return
-      seen.add(key)
-
       const quaCells = row.querySelectorAll('td.tdQua')
       const applied  = parseInt((quaCells[0]?.textContent || '').match(/\d+/)?.[0] || '0')
       const won      = parseInt((quaCells[1]?.textContent || '').match(/\d+/)?.[0] || '0')
 
-      // source_url 加後綴讓同一頁內多筆記錄各自唯一
-      const sourceURL = `${sourceBase}#${encodeURIComponent(parsed.member_name)}|${parsed.event_date}|${parsed.session}`
+      const key = parsed.member_name + parsed.raw_date + parsed.session
 
-      records.push({ ...parsed, applied_count: applied, won_count: won, source_url: sourceURL })
+      if (aggregated[key]) {
+        aggregated[key].applied_count += applied
+        aggregated[key].won_count     += won
+      } else {
+        // 用應募月推算活動年份：活動月 < 應募月 → 隔年
+        const eventMonth = parseInt(parsed.raw_date.split('/')[0])
+        let eventYear
+        if (applyInfo) {
+          eventYear = eventMonth < applyInfo.month ? applyInfo.year + 1 : applyInfo.year
+        } else {
+          eventYear = new Date().getFullYear()
+        }
+
+        // source_url 使用 raw_date（M/D）維持與既有資料的去重相容性
+        const sourceURL = `${sourceBase}#${encodeURIComponent(parsed.member_name)}|${parsed.raw_date}|${parsed.session}`
+
+        // 用 tdEvent 解析出的單曲資訊組成 event_name（單曲/應募次數）
+        let eventLabel = parsed.event_name
+        if (applyInfo?.singleNum) {
+          eventLabel = `${applyInfo.singleNum}${applyInfo.singleSuffix}シングル`
+          if (applyInfo.singleTitle)  eventLabel += `「${applyInfo.singleTitle}」`
+          if (applyInfo.lotteryRound) eventLabel += `/${applyInfo.lotteryRound}`
+        }
+
+        aggregated[key] = {
+          member_name:   parsed.member_name,
+          event_date:    `${eventYear}/${parsed.raw_date}`,
+          session:       parsed.session,
+          event_name:    eventLabel,
+          applied_count: applied,
+          won_count:     won,
+          source_url:    sourceURL,
+        }
+      }
     })
+
+    Object.values(aggregated).forEach(rec => records.push(rec))
   }
 
   return { records, order_count: orderIDs.size }

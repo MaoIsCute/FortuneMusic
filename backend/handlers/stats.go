@@ -188,6 +188,35 @@ Scan(&rows)
 c.JSON(http.StatusOK, calcWinRate(rows))
 }
 
+func GetDetailStats(c *gin.Context) {
+	userID := getUserID(c)
+
+	type detailRow struct {
+		MemberName   string  `json:"member_name"`
+		EventName    string  `json:"event_name"`
+		EventDate    string  `json:"event_date"`
+		Session      string  `json:"session"`
+		TotalApplied int     `json:"total_applied"`
+		TotalWon     int     `json:"total_won"`
+		WinRate      float64 `json:"win_rate"`
+	}
+
+	var rows []detailRow
+	db.DB.Model(&models.Record{}).
+		Where("user_id = ?", userID).
+		Select("member_name, event_name, event_date, session, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won").
+		Group("member_name, event_name, event_date, session").
+		Order("member_name, event_name, event_date, session").
+		Scan(&rows)
+
+	for i := range rows {
+		if rows[i].TotalApplied > 0 {
+			rows[i].WinRate = float64(rows[i].TotalWon) / float64(rows[i].TotalApplied) * 100
+		}
+	}
+	c.JSON(http.StatusOK, rows)
+}
+
 func GetRecords(c *gin.Context) {
 userID := getUserID(c)
 
