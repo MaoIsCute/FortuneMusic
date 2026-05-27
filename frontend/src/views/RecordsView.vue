@@ -1,40 +1,127 @@
-﻿<template>
+<template>
   <div class="page">
     <h1 class="page-title">📋 抽選紀錄</h1>
     <div class="filters">
-      <el-select v-model="filterMember" placeholder="選擇成員" clearable @change="filter">
+      <el-select v-model="filterMember" placeholder="選擇成員" clearable @change="loadRecords">
         <el-option v-for="m in memberList" :key="m" :label="m" :value="m" />
       </el-select>
+      <el-select v-model="filterSingle" placeholder="選擇單曲" clearable @change="loadRecords">
+        <el-option v-for="s in singleList" :key="s" :label="formatSingle(s)" :value="s" />
+      </el-select>
+      <el-select v-model="filterRound" placeholder="選擇次數" clearable @change="loadRecords">
+        <el-option v-for="r in roundList" :key="r" :label="formatRound(r)" :value="r" />
+      </el-select>
     </div>
-    <el-table :data="filtered" stripe>
+    <el-table :data="records" stripe>
       <el-table-column prop="member_name" label="成員" />
-      <el-table-column prop="event_date" label="日期" />
-      <el-table-column prop="session" label="部數" />
-      <el-table-column prop="applied_count" label="應募數" />
-      <el-table-column prop="won_count" label="中選數" />
-      <el-table-column prop="scraped_at" label="爬取時間" />
+      <el-table-column label="單曲">
+        <template #default="{ row }">{{ formatSingle(row.single_name) || row.event_name }}</template>
+      </el-table-column>
+      <el-table-column label="次數" width="80">
+        <template #default="{ row }">{{ formatRound(row.lottery_round) }}</template>
+      </el-table-column>
+      <el-table-column prop="event_date" label="日期" width="110" />
+      <el-table-column prop="session" label="部數" width="90" />
+      <el-table-column prop="applied_count" label="應募" width="70" />
+      <el-table-column prop="won_count" label="中選" width="70" />
+      <el-table-column label="中選率" width="90">
+        <template #default="{ row }">
+          <span :class="rateClass(row)">{{ calcRate(row) }}%</span>
+        </template>
+      </el-table-column>
     </el-table>
+    <div class="pagination">
+      <el-pagination
+        v-model:current-page="page"
+        :page-size="pageSize"
+        :total="total"
+        layout="total, prev, pager, next"
+        @current-change="loadRecords"
+      />
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { getRecords } from '../api/index'
+import { ref, onMounted } from 'vue'
+import { getRecords, getStatsByMember, getDetailStats } from '../api/index'
 
-const records = ref([])
+const records  = ref([])
+const total    = ref(0)
+const page     = ref(1)
+const pageSize = 20
+
 const filterMember = ref('')
+const filterSingle = ref('')
+const filterRound  = ref('')
+
+const memberList = ref([])
+const singleList = ref([])
+const roundList  = ref([])
 
 onMounted(async () => {
-  const res = await getRecords()
-  records.value = res.data.data ?? res.data
+  const [membersRes, detailRes] = await Promise.all([getStatsByMember(), getDetailStats()])
+  memberList.value = (membersRes.data ?? []).map(m => m.member_name)
+  const rows = detailRes.data ?? []
+  singleList.value = [...new Set(rows.map(r => r.single_name).filter(Boolean))].sort()
+  roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) =>
+    parseInt(a.match(/\d+/)?.[0] ?? 0) - parseInt(b.match(/\d+/)?.[0] ?? 0)
+  )
+  await loadRecords()
 })
 
-const memberList = computed(() => [...new Set(records.value.map(r => r.member_name))])
-const filtered = computed(() =>
-  filterMember.value ? records.value.filter(r => r.member_name === filterMember.value) : records.value
-)
+async function loadRecords() {
+  page.value = 1
+  await fetchPage()
+}
+
+async function fetchPage() {
+  const params = { page: page.value, page_size: pageSize }
+  if (filterMember.value) params.member = filterMember.value
+  if (filterSingle.value) params.single = filterSingle.value
+  if (filterRound.value)  params.round  = filterRound.value
+  const res = await getRecords(params)
+  records.value = res.data.data ?? []
+  total.value   = res.data.total ?? 0
+}
+
+function calcRate(row) {
+  if (!row.applied_count) return '0.0'
+  return (row.won_count / row.applied_count * 100).toFixed(1)
+}
+
+function rateClass(row) {
+  const r = row.applied_count ? row.won_count / row.applied_count * 100 : 0
+  if (r >= 80) return 'rate high'
+  if (r >= 40) return 'rate mid'
+  return 'rate low'
+}
+
+function formatSingle(name) {
+  if (!name) return ''
+  return name
+    .replace(/(\d+)(?:st|nd|rd|th)シングル/, (_, n) => `${n}單`)
+    .replace(/(\d+)(?:st|nd|rd|th)アルバム/, (_, n) => `${n}專`)
+    .replace(/^アルバム/, '專輯')
+}
+
+function formatRound(round) {
+  if (!round) return ''
+  const n = parseInt(round.match(/\d+/)?.[0] ?? 0)
+  return `${n}抽`
+}
 </script>
 
 <style scoped>
-.filters { margin-bottom: 20px; }
+.filters {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.pagination { margin-top: 20px; display: flex; justify-content: flex-end; }
+.rate { font-weight: bold; }
+.rate.high { color: #52c41a; }
+.rate.mid  { color: #faad14; }
+.rate.low  { color: #ff4d4f; }
 </style>

@@ -5,6 +5,7 @@
       <router-link to="/dashboard">總覽</router-link>
       <router-link to="/records">紀錄</router-link>
       <router-link to="/scrape">爬蟲</router-link>
+      <router-link v-if="isAdmin" to="/admin">管理</router-link>
     </div>
     <div class="actions">
       <el-switch v-model="isDark" @change="themeStore.toggleDark()" active-text="🌙" inactive-text="☀️" />
@@ -24,6 +25,7 @@ const router = useRouter()
 const themeStore = useThemeStore()
 const auth = useAuthStore()
 const isDark = computed(() => themeStore.isDark)
+const isAdmin = computed(() => auth.user?.email === 'sam6666sunny@gmail.com')
 </script>
 
 <style scoped>

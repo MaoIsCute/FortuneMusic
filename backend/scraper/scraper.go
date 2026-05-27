@@ -303,8 +303,11 @@ func parseItem(s *goquery.Selection, sourceURL string, applyYear, applyMonth int
 
 	eventYear := inferEventYear(date, applyYear, applyMonth)
 	itemURL := fmt.Sprintf("%s#%s|%s|%s", sourceURL, url.QueryEscape(member), date, session)
+	singleName, lotteryRound := parseSingleAndRound(eventName)
 	return &models.Record{
-		EventName:    eventName,
+		SingleNumber: parseSingleNumber(singleName),
+		SingleName:   singleName,
+		LotteryRound: lotteryRound,
 		MemberName:   member,
 		EventDate:    fmt.Sprintf("%d/%s", eventYear, date),
 		Session:      session,
@@ -333,17 +336,42 @@ func parseByText(doc *goquery.Document, sourceURL string, applyYear, applyMonth 
 			seen[key] = true
 			eventYear := inferEventYear(date, applyYear, applyMonth)
 			itemURL := fmt.Sprintf("%s#%s|%s|%s", sourceURL, url.QueryEscape(member), date, session)
+			singleName, lotteryRound := parseSingleAndRound(eventName)
 			records = append(records, &models.Record{
-				EventName:  eventName,
-				MemberName: member,
-				EventDate:  fmt.Sprintf("%d/%s", eventYear, date),
-				Session:    session,
-				SourceURL:  itemURL,
+				SingleNumber: parseSingleNumber(singleName),
+				SingleName:   singleName,
+				LotteryRound: lotteryRound,
+				MemberName:   member,
+				EventDate:    fmt.Sprintf("%d/%s", eventYear, date),
+				Session:      session,
+				SourceURL:    itemURL,
 			})
 		}
 	})
 
 	return records
+}
+
+// parseSingleAndRound extracts single name and lottery round from event_name.
+func parseSingleAndRound(eventName string) (singleName, lotteryRound string) {
+	if idx := strings.LastIndex(eventName, "/"); idx != -1 {
+		singleName = eventName[:idx]
+		lotteryRound = eventName[idx+1:]
+		return
+	}
+	singleRe := regexp.MustCompile(`\d+(?:st|nd|rd|th)シングル(?:「[^」]*」)?`)
+	singleName = singleRe.FindString(eventName)
+	return
+}
+
+// parseSingleNumber extracts the single number from singleName, e.g. "41stシングル..." → 41
+func parseSingleNumber(singleName string) int {
+	m := regexp.MustCompile(`^(\d+)`).FindStringSubmatch(singleName)
+	if len(m) < 2 {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
 }
 
 func parseProductName(name string) (member, date, session, eventName string) {

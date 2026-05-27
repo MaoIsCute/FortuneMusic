@@ -29,11 +29,15 @@ func Setup(cfg *config.Config) *gin.Engine {
 
 	// 供瀏覽器擴充功能使用（以 scrape_token 驗證，不需 JWT）
 	r.POST("/scrape", handlers.PublicScrape)
-	r.POST("/scrape/push", handlers.PushRecords) // 擴充功能在瀏覽器內爬好後直接推送記錄
+	r.POST("/scrape/push", handlers.PushRecords)
+	r.POST("/scrape/check-orders", handlers.CheckOrders)
+	r.POST("/scrape/update-titles", handlers.UpdateTitles)
 
 	api := r.Group("/api", middleware.AuthRequired(cfg))
 	{
 		api.GET("/me", handlers.GetMe)
+		api.GET("/admin/title-issues", handlers.GetTitleIssues)
+		api.PUT("/admin/title", handlers.FixSingleTitle)
 		api.GET("/scrape-token", handlers.GetScrapeToken)
 		api.POST("/scrape", handlers.TriggerScrape)
 		api.GET("/records", handlers.GetRecords)
@@ -43,6 +47,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/stats/by-date", handlers.GetStatsByDate)
 		api.GET("/stats/by-session", handlers.GetStatsBySession)
 		api.GET("/stats/detail", handlers.GetDetailStats)
+		api.GET("/stats/order-sequence", handlers.GetOrderSequenceStats)
 	}
 
 	return r

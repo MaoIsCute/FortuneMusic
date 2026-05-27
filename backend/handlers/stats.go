@@ -3,6 +3,8 @@
 import (
 "fmt"
 "net/http"
+"regexp"
+"sort"
 
 "fortune-tracker/db"
 "fortune-tracker/models"
@@ -193,7 +195,9 @@ func GetDetailStats(c *gin.Context) {
 
 	type detailRow struct {
 		MemberName   string  `json:"member_name"`
-		EventName    string  `json:"event_name"`
+		SingleNumber int     `json:"single_number"`
+		SingleName   string  `json:"single_name"`
+		LotteryRound string  `json:"lottery_round"`
 		EventDate    string  `json:"event_date"`
 		Session      string  `json:"session"`
 		TotalApplied int     `json:"total_applied"`
@@ -204,9 +208,9 @@ func GetDetailStats(c *gin.Context) {
 	var rows []detailRow
 	db.DB.Model(&models.Record{}).
 		Where("user_id = ?", userID).
-		Select("member_name, event_name, event_date, session, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won").
-		Group("member_name, event_name, event_date, session").
-		Order("member_name, event_name, event_date, session").
+		Select("member_name, single_number, MAX(single_name) as single_name, lottery_round, event_date, session, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won").
+		Group("member_name, single_number, lottery_round, event_date, session").
+		Order("member_name, single_number, lottery_round, event_date, session").
 		Scan(&rows)
 
 	for i := range rows {
@@ -238,6 +242,12 @@ query := db.DB.Model(&models.Record{}).Where("user_id = ?", userID)
 if member := c.Query("member"); member != "" {
 query = query.Where("member_name = ?", member)
 }
+if single := c.Query("single"); single != "" {
+query = query.Where("single_name = ?", single)
+}
+if round := c.Query("round"); round != "" {
+query = query.Where("lottery_round = ?", round)
+}
 
 var total int64
 query.Count(&total)
@@ -253,4 +263,87 @@ c.JSON(http.StatusOK, gin.H{
 "page":      page,
 "page_size": pageSize,
 })
+}
+
+// GetOrderSequenceStats 計算二抽各張訂單序號的中選率
+// 從 source_url 提取 order ID，同 (event_date, session) 群組內依序排列
+func GetOrderSequenceStats(c *gin.Context) {
+	userID := getUserID(c)
+
+	query := db.DB.Model(&models.Record{}).Where("user_id = ?", userID)
+	if member := c.Query("member"); member != "" {
+		query = query.Where("member_name = ?", member)
+	}
+	if session := c.Query("session"); session != "" {
+		query = query.Where("session = ?", session)
+	}
+	if round := c.Query("round"); round != "" {
+		query = query.Where("lottery_round = ?", round)
+	}
+
+	var records []models.Record
+	query.Find(&records)
+
+	if len(records) == 0 {
+		c.JSON(http.StatusOK, []struct{}{})
+		return
+	}
+
+	// 依 (event_date, session) 分群
+	type groupKey struct{ EventDate, Session string }
+	groups := map[groupKey][]models.Record{}
+	for _, r := range records {
+		key := groupKey{r.EventDate, r.Session}
+		groups[key] = append(groups[key], r)
+	}
+
+	orderIDRe := regexp.MustCompile(`/apply_detail/([^/]+)/`)
+
+	// 各群組內依 order ID 排序，累加各位置的 applied / won
+	posAgg := map[int]struct{ applied, won int }{}
+	for _, recs := range groups {
+		sort.Slice(recs, func(i, j int) bool {
+			mi := orderIDRe.FindStringSubmatch(recs[i].SourceURL)
+			mj := orderIDRe.FindStringSubmatch(recs[j].SourceURL)
+			idI, idJ := "", ""
+			if len(mi) > 1 { idI = mi[1] }
+			if len(mj) > 1 { idJ = mj[1] }
+			return idI < idJ
+		})
+		for pos, rec := range recs {
+			p := posAgg[pos+1]
+			p.applied += rec.AppliedCount
+			p.won += rec.WonCount
+			posAgg[pos+1] = p
+		}
+	}
+
+	// 排序位置並組成回傳結果
+	positions := make([]int, 0, len(posAgg))
+	for p := range posAgg { positions = append(positions, p) }
+	sort.Ints(positions)
+
+	type result struct {
+		Position string  `json:"position"`
+		Applied  int     `json:"applied"`
+		Won      int     `json:"won"`
+		WinRate  float64 `json:"win_rate"`
+	}
+	out := make([]result, 0, len(positions))
+	for _, p := range positions {
+		agg := posAgg[p]
+		rate := 0.0
+		if agg.applied > 0 {
+			rate = float64(agg.won) / float64(agg.applied) * 100
+		}
+		var wr float64
+		fmt.Sscanf(fmt.Sprintf("%.1f", rate), "%f", &wr)
+		out = append(out, result{
+			Position: fmt.Sprintf("第%d筆", p),
+			Applied:  agg.applied,
+			Won:      agg.won,
+			WinRate:  wr,
+		})
+	}
+	c.JSON(http.StatusOK, out)
 }

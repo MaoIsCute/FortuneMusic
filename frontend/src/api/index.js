@@ -28,9 +28,12 @@ export const getStatsByDate = () => api.get('/api/stats/by-date')
 export const getStatsBySession = () => api.get('/api/stats/by-session')
 export const getStatsByMember = () => api.get('/api/stats/by-member')
 export const getDetailStats = () => api.get('/api/stats/detail')
+export const getOrderSequenceStats = (params = {}) => api.get('/api/stats/order-sequence', { params })
 export const getRecords = (params = {}) => api.get('/api/records', { params: { page_size: 100, ...params } })
 export const getMe = () => api.get('/api/me')
 export const getScrapeToken = () => api.get('/api/scrape-token')
 export const triggerScrape = (cookie) => api.post('/api/scrape', { cookie })
+export const getAdminTitleIssues = () => api.get('/api/admin/title-issues')
+export const fixSingleTitle = (single_number, single_name) => api.put('/api/admin/title', { single_number, single_name })
 
 export default api

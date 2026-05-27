@@ -8,12 +8,77 @@ const resultEl  = document.getElementById('result')
 const syncBtn   = document.getElementById('syncBtn')
 const scrapeBtn = document.getElementById('scrapeBtn')
 
-// ─── 在 fortunemusic.jp/mypage/apply_list/ 執行的爬蟲 ──────────────────────
-// 此函式被序列化注入分頁，不可引用外部變數。
-// 假設分頁已載入完成且使用者已登入。
-async function scrapeFromApplyListPage() {
+// ─── 階段一：掃描申請列表，不進 detail page ──────────────────────────────────
+// 回傳 { orders: [{id, info}], hasMore } 或 { error }
+async function scrapeListPage(pageNum) {
+  let doc
+  if (pageNum === 1) {
+    doc = document
+    if (doc.querySelector('[name="login_form"], input[type="password"]'))
+      return { error: '頁面顯示登入表單，請先登入後再點「開始抓取」' }
+  } else {
+    let res
+    try { res = await fetch(`/mypage/apply_list/?page=${pageNum - 1}`) } catch (e) {
+      return { error: `第 ${pageNum} 頁讀取失敗：${e.message}` }
+    }
+    if (!res.ok) return { error: `第 ${pageNum} 頁回應錯誤：${res.status}` }
+    doc = new DOMParser().parseFromString(await res.text(), 'text/html')
+  }
+
+  const orders = []
+  const seen   = {}
+
+  doc.querySelectorAll('a[href]').forEach(a => {
+    const m = (a.getAttribute('href') || '').match(/\/mypage\/apply_detail\/(\d+)\/?/)
+    if (!m || seen[m[1]]) return
+    seen[m[1]] = true
+    const id  = m[1]
+    const info = {}
+
+    const container = a.closest('tr, li, article, section') || a.parentElement
+    if (!container) { orders.push({ id, info: null }); return }
+
+    container.querySelectorAll('span.hdg').forEach(span => {
+      if (span.textContent.trim() !== '応募日時') return
+      const tdText  = span.parentElement.textContent.trim()
+      const dateStr = tdText.replace(span.textContent.trim(), '').trim()
+      const dm = dateStr.match(/(\d{4})-(\d{1,2})-/)
+      if (dm) { info.year = parseInt(dm[1]); info.month = parseInt(dm[2]) }
+    })
+
+    const tdEvent = container.querySelector('td.tdEvent')
+    if (tdEvent) {
+      const eventText = tdEvent.textContent.trim()
+      const sm    = eventText.match(/(\d+)(st|nd|rd|th)シングル/)
+      const am    = eventText.match(/(\d+)(st|nd|rd|th)アルバム/)
+      const titleM = eventText.match(/[『「](.+?)[』」]/)
+      const rm    = eventText.match(/第(\d+)次/)
+      if (rm) info.lotteryRound = `第${rm[1]}次`
+      if (sm) {
+        info.singleNum    = sm[1]
+        info.singleSuffix = sm[2]
+        info.singleTitle  = titleM ? titleM[1] : null
+      } else if (am) {
+        info.albumNum    = am[1]
+        info.albumSuffix = am[2]
+        info.albumTitle  = titleM ? titleM[1] : null
+      } else if (/アルバム/.test(eventText)) {
+        info.isAlbum   = true
+        info.albumTitle = titleM ? titleM[1] : null
+      }
+    }
+
+    orders.push({ id, info: Object.keys(info).length ? info : null })
+  })
+
+  if (orders.length === 0) return { orders: [], hasMore: false }
+  return { orders, hasMore: true }
+}
+
+// ─── 階段二：只抓新訂單的 detail page ────────────────────────────────────────
+// entries = [{id, info}]（只傳新訂單進來）
+async function fetchOrderDetails(entries) {
   const itemRe = /^(.+?)【(\d{1,2}\/\d{1,2})\s+(第\d+部)】(.+)$/
-  const textRe = /[一-鿿぀-ゟ゠-ヿ･-ﾟa-zA-Z]+【\d{1,2}\/\d{1,2}\s+第\d+部】.+/g
 
   function parseProductName(text) {
     const m = text.trim().match(itemRe)
@@ -21,117 +86,74 @@ async function scrapeFromApplyListPage() {
     return { member_name: m[1].trim(), raw_date: m[2], session: m[3], event_name: m[4].trim() }
   }
 
-  // 確認是否登入（有登入表單 = 未登入）
-  const hasLoginForm = !!document.querySelector('[name="login_form"], input[type="password"]')
-  if (hasLoginForm) {
-    return { error: '頁面顯示登入表單，請先登入後再點「開始抓取」' }
-  }
-
-  // 從目前 DOM 收集訂單 ID、應募日期、單曲資訊
-  const orderInfoMap = {} // orderID → { year, month, singleNum, singleSuffix, singleTitle }
-  document.querySelectorAll('a[href]').forEach(a => {
-    const m = (a.getAttribute('href') || '').match(/\/mypage\/apply_detail\/(\d+)\/?/)
-    if (!m || orderInfoMap[m[1]] !== undefined) return
-    const id = m[1]
-    orderInfoMap[id] = null // 佔位，避免重複處理
-
-    const container = a.closest('tr, li, article, section') || a.parentElement
-    if (!container) return
-
-    const info = {}
-
-    // 応募日時
-    container.querySelectorAll('span.hdg').forEach(span => {
-      if (span.textContent.trim() !== '応募日時') return
-      const tdText = span.parentElement.textContent.trim()
-      const dateStr = tdText.replace(span.textContent.trim(), '').trim()
-      const dm = dateStr.match(/(\d{4})-(\d{1,2})-/)
-      if (dm) { info.year = parseInt(dm[1]); info.month = parseInt(dm[2]) }
-    })
-
-    // 單曲號、歌名、應募次數（從 td.tdEvent 解析）
-    const tdEvent = container.querySelector('td.tdEvent')
-    if (tdEvent) {
-      const eventText = tdEvent.textContent.trim()
-      const sm = eventText.match(/(\d+)(st|nd|rd|th)シングル/)
-      const tm = eventText.match(/『(.+?)』/)
-      const rm = eventText.match(/第(\d+)次/)
-      if (sm) {
-        info.singleNum    = sm[1]
-        info.singleSuffix = sm[2]
-        info.singleTitle  = tm ? tm[1] : null
-        info.lotteryRound = rm ? `第${rm[1]}次` : null
-      }
+  function buildEventLabel(applyInfo, fallback) {
+    if (applyInfo?.singleNum) {
+      let s = `${applyInfo.singleNum}${applyInfo.singleSuffix}シングル`
+      if (applyInfo.singleTitle)  s += `「${applyInfo.singleTitle}」`
+      if (applyInfo.lotteryRound) s += `/${applyInfo.lotteryRound}`
+      return s
     }
-
-    if (Object.keys(info).length) orderInfoMap[id] = info
-  })
-
-  const orderIDs = Object.keys(orderInfoMap)
-  if (orderIDs.length === 0) {
-    const title = document.querySelector('title')?.textContent?.trim() || ''
-    return { records: [], order_count: 0, title }
+    if (applyInfo?.albumNum) {
+      let s = `${applyInfo.albumNum}${applyInfo.albumSuffix}アルバム`
+      if (applyInfo.albumTitle)   s += `「${applyInfo.albumTitle}」`
+      if (applyInfo.lotteryRound) s += `/${applyInfo.lotteryRound}`
+      return s
+    }
+    if (applyInfo?.isAlbum) {
+      let s = 'アルバム'
+      if (applyInfo.albumTitle)   s += `「${applyInfo.albumTitle}」`
+      if (applyInfo.lotteryRound) s += `/${applyInfo.lotteryRound}`
+      return s
+    }
+    return fallback
   }
 
-  // same-origin fetch 各申請詳情
-  const parser = new DOMParser()
+  const parser  = new DOMParser()
   const records = []
 
-  for (const id of orderIDs) {
+  for (const { id, info: applyInfo } of entries) {
     let res
     try { res = await fetch(`/mypage/apply_detail/${id}/`) } catch { continue }
     if (!res.ok) continue
 
-    const detailDoc = parser.parseFromString(await res.text(), 'text/html')
-    const sourceBase = `https://fortunemusic.jp/mypage/apply_detail/${id}/`
-    const applyInfo  = orderInfoMap[id]
-
-    // 同一張單內若有相同 member+date+session 的多行（部分中選時逐筆顯示）
-    // 用 aggregated 累加，避免 seen 跳過後續行導致數據丟失
-    const aggregated = {}
+    const detailDoc   = parser.parseFromString(await res.text(), 'text/html')
+    const sourceBase  = `https://fortunemusic.jp/mypage/apply_detail/${id}/`
+    const aggregated  = {}
 
     detailDoc.querySelectorAll('tbody tr:not(.tblCatLast)').forEach(row => {
       const nameTd = row.querySelector('td:first-child')
       if (!nameTd) return
-
       const parsed = parseProductName(nameTd.textContent)
       if (!parsed) return
 
       const quaCells = row.querySelectorAll('td.tdQua')
       const applied  = parseInt((quaCells[0]?.textContent || '').match(/\d+/)?.[0] || '0')
       const won      = parseInt((quaCells[1]?.textContent || '').match(/\d+/)?.[0] || '0')
-
-      const key = parsed.member_name + parsed.raw_date + parsed.session
+      const key      = parsed.member_name + parsed.raw_date + parsed.session
 
       if (aggregated[key]) {
         aggregated[key].applied_count += applied
         aggregated[key].won_count     += won
       } else {
-        // 用應募月推算活動年份：活動月 < 應募月 → 隔年
         const eventMonth = parseInt(parsed.raw_date.split('/')[0])
-        let eventYear
-        if (applyInfo) {
-          eventYear = eventMonth < applyInfo.month ? applyInfo.year + 1 : applyInfo.year
-        } else {
-          eventYear = new Date().getFullYear()
-        }
+        const eventYear  = applyInfo
+          ? (eventMonth < applyInfo.month ? applyInfo.year + 1 : applyInfo.year)
+          : new Date().getFullYear()
 
-        // source_url 使用 raw_date（M/D）維持與既有資料的去重相容性
-        const sourceURL = `${sourceBase}#${encodeURIComponent(parsed.member_name)}|${parsed.raw_date}|${parsed.session}`
-
-        // 用 tdEvent 解析出的單曲資訊組成 event_name（單曲/應募次數）
-        let eventLabel = parsed.event_name
-        if (applyInfo?.singleNum) {
-          eventLabel = `${applyInfo.singleNum}${applyInfo.singleSuffix}シングル`
-          if (applyInfo.singleTitle)  eventLabel += `「${applyInfo.singleTitle}」`
-          if (applyInfo.lotteryRound) eventLabel += `/${applyInfo.lotteryRound}`
-        }
+        const sourceURL    = `${sourceBase}#${encodeURIComponent(parsed.member_name)}|${parsed.raw_date}|${parsed.session}`
+        const eventLabel   = buildEventLabel(applyInfo, parsed.event_name)
+        const slashIdx     = eventLabel.lastIndexOf('/')
+        const singleName   = slashIdx !== -1 ? eventLabel.slice(0, slashIdx) : eventLabel
+        const lotteryRound = slashIdx !== -1 ? eventLabel.slice(slashIdx + 1) : (applyInfo?.lotteryRound || '')
+        const singleNumber = applyInfo?.singleNum ? parseInt(applyInfo.singleNum) : 0
 
         aggregated[key] = {
           member_name:   parsed.member_name,
           event_date:    `${eventYear}/${parsed.raw_date}`,
           session:       parsed.session,
-          event_name:    eventLabel,
+          single_number: singleNumber,
+          single_name:   singleName,
+          lottery_round: lotteryRound,
           applied_count: applied,
           won_count:     won,
           source_url:    sourceURL,
@@ -142,9 +164,30 @@ async function scrapeFromApplyListPage() {
     Object.values(aggregated).forEach(rec => records.push(rec))
   }
 
-  return { records, order_count: orderIDs.size }
+  return { records }
 }
 // ────────────────────────────────────────────────────────────────────────────
+
+// 從 applyInfo 組出 single_name（不需要 detail page）
+function buildSingleName(info) {
+  if (!info) return null
+  if (info.singleNum) {
+    let s = `${info.singleNum}${info.singleSuffix}シングル`
+    if (info.singleTitle) s += `「${info.singleTitle}」`
+    return s
+  }
+  if (info.albumNum) {
+    let s = `${info.albumNum}${info.albumSuffix}アルバム`
+    if (info.albumTitle) s += `「${info.albumTitle}」`
+    return s
+  }
+  if (info.isAlbum) {
+    let s = 'アルバム'
+    if (info.albumTitle) s += `「${info.albumTitle}」`
+    return s
+  }
+  return null
+}
 
 async function init() {
   const data = await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
@@ -204,7 +247,7 @@ syncBtn.addEventListener('click', async () => {
   )
 })
 
-// 步驟二：從已開啟的分頁抓取資料
+// 步驟二：逐頁掃描 → 新訂單抓詳情 → 舊訂單更新 title
 scrapeBtn.addEventListener('click', async () => {
   const { [BACKEND_KEY]: backendUrl, [TOKEN_KEY]: scrapeToken } =
     await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
@@ -212,56 +255,107 @@ scrapeBtn.addEventListener('click', async () => {
   scrapeBtn.disabled    = true
   scrapeBtn.textContent = '抓取中...'
 
+  let totalNew     = 0
+  let totalSkipped = 0
+  let totalUpdated = 0
+  let page         = 1
+
   try {
-    // 找到 apply_list 分頁
     const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/apply_list/*' })
     if (tabs.length === 0) {
       showResult('error', '找不到申請列表分頁，請先點「同步」開啟頁面，確認登入後再試')
       return
     }
 
-    showResult('info', '正在讀取申請記錄...')
+    while (true) {
+      // ── 1. 掃描列表頁（快，不進 detail）──
+      showResult('info', `正在掃描第 ${page} 頁...`)
+      const listResult = await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func:   scrapeListPage,
+        args:   [page],
+      })
+      const listData = listResult[0]?.result
+      if (!listData)        { showResult('error', '掃描失敗，無法取得結果'); break }
+      if (listData.error)   { showResult('error', listData.error);           break }
+      if (!listData.hasMore) break
 
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tabs[0].id },
-      func: scrapeFromApplyListPage,
-    })
+      const { orders } = listData
 
-    const r = results[0]?.result
-    if (!r)       { showResult('error', '抓取失敗，無法取得結果'); return }
-    if (r.error)  { showResult('error', r.error);                  return }
+      // ── 2. 詢問後端哪些訂單是新的 ──
+      const checkRes = await fetch(`${backendUrl}/scrape/check-orders`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ scrape_token: scrapeToken, order_ids: orders.map(o => o.id) }),
+      })
+      const checkJson = await checkRes.json()
+      if (!checkRes.ok) { showResult('error', checkJson.error || '查詢失敗'); break }
 
-    const { records, order_count } = r
-    if (order_count === 0) {
-      showResult('warning', `申請列表是空的（頁面：${r.title || '-'}）`)
-      setWaitingMode(false)
-      return
+      const newSet      = new Set(checkJson.new_order_ids)
+      const existingSet = new Set(checkJson.existing_order_ids)
+
+      // ── 3. 只抓新訂單的 detail page ──
+      const newEntries = orders.filter(o => newSet.has(o.id))
+      if (newEntries.length > 0) {
+        showResult('info', `第 ${page} 頁：${newEntries.length} 筆新訂單，抓取中...`)
+        const detailResult = await chrome.scripting.executeScript({
+          target: { tabId: tabs[0].id },
+          func:   fetchOrderDetails,
+          args:   [newEntries],
+        })
+        const detailData = detailResult[0]?.result
+        if (detailData?.records?.length > 0) {
+          const pushRes = await fetch(`${backendUrl}/scrape/push`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ scrape_token: scrapeToken, records: detailData.records }),
+          })
+          const pushJson = await pushRes.json()
+          if (!pushRes.ok) { showResult('error', pushJson.error || '上傳失敗'); break }
+          totalNew     += pushJson.new_records ?? 0
+          totalSkipped += pushJson.skipped     ?? 0
+        }
+      }
+
+      // ── 4. 既有訂單：批次更新 title（如有變動）──
+      const titleUpdates = orders
+        .filter(o => existingSet.has(o.id))
+        .map(o => {
+          const singleName = buildSingleName(o.info)
+          if (!singleName) return null
+          return {
+            order_id:      o.id,
+            single_name:   singleName,
+            single_number: o.info?.singleNum ? parseInt(o.info.singleNum) : 0,
+          }
+        })
+        .filter(Boolean)
+
+      if (titleUpdates.length > 0) {
+        const updateRes = await fetch(`${backendUrl}/scrape/update-titles`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ scrape_token: scrapeToken, updates: titleUpdates }),
+        })
+        const updateJson = await updateRes.json()
+        if (updateRes.ok) totalUpdated += updateJson.updated ?? 0
+      }
+
+      page++
     }
-    if (records.length === 0) {
-      showResult('warning', `找到 ${order_count} 筆申請但無法解析記錄格式\n請回報此問題`)
-      return
-    }
 
-    showResult('info', `解析完成（${records.length} 筆），上傳中...`)
+    // ── 最終結果 ──
+    const parts = []
+    if (totalNew > 0)     parts.push(`新增 ${totalNew} 筆`)
+    if (totalSkipped > 0) parts.push(`跳過重複 ${totalSkipped} 筆`)
+    if (totalUpdated > 0) parts.push(`更新 title ${totalUpdated} 筆`)
 
-    const res  = await fetch(`${backendUrl}/scrape/push`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ scrape_token: scrapeToken, records }),
-    })
-    const json = await res.json()
-
-    if (!res.ok) { showResult('error', json.error || '後端儲存失敗'); return }
-
-    if (json.new_records > 0) {
-      const note = json.skipped > 0 ? `（跳過重複 ${json.skipped} 筆）` : ''
-      showResult('success', `同步成功！新增 ${json.new_records} 筆記錄${note}`)
-    } else if (json.skipped > 0) {
-      showResult('success', `同步完成，所有 ${json.skipped} 筆已存在，無新增`)
-    } else {
-      showResult('warning', '同步完成，沒有可儲存的記錄')
-    }
-
+    showResult(
+      parts.length ? 'success' : 'warning',
+      parts.length
+        ? `同步完成！共 ${page - 1} 頁，${parts.join('、')}`
+        : `同步完成，共 ${page - 1} 頁，無新資料`
+    )
     setWaitingMode(false)
   } catch (e) {
     showResult('error', '發生錯誤：' + e.message)
