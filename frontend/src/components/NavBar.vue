@@ -25,7 +25,7 @@ const router = useRouter()
 const themeStore = useThemeStore()
 const auth = useAuthStore()
 const isDark = computed(() => themeStore.isDark)
-const isAdmin = computed(() => auth.user?.email === 'sam6666sunny@gmail.com')
+const isAdmin = computed(() => !!auth.user?.is_admin)
 </script>
 
 <style scoped>

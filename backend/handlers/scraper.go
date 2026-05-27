@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"fortune-tracker/db"
@@ -11,6 +12,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+var orderIDRe = regexp.MustCompile(`/apply_detail/([^/#]+)/`)
+
+func extractOrderID(sourceURL string) string {
+	m := orderIDRe.FindStringSubmatch(sourceURL)
+	if len(m) > 1 {
+		return m[1]
+	}
+	return ""
+}
 
 type ScrapeRequest struct {
 	Cookie     string `json:"cookie"`
@@ -95,6 +106,7 @@ func PushRecords(c *gin.Context) {
 		}
 		rec := models.Record{
 			UserID:       user.ID,
+			OrderID:      extractOrderID(r.SourceURL),
 			SingleNumber: r.SingleNumber,
 			SingleName:   r.SingleName,
 			LotteryRound: r.LotteryRound,
@@ -135,13 +147,20 @@ func CheckOrders(c *gin.Context) {
 		return
 	}
 
+	var foundIDs []string
+	db.DB.Model(&models.Record{}).
+		Where("user_id = ? AND order_id IN ?", user.ID, req.OrderIDs).
+		Distinct("order_id").
+		Pluck("order_id", &foundIDs)
+
+	foundSet := make(map[string]bool, len(foundIDs))
+	for _, id := range foundIDs {
+		foundSet[id] = true
+	}
+
 	newIDs, existingIDs := []string{}, []string{}
 	for _, id := range req.OrderIDs {
-		var count int64
-		db.DB.Model(&models.Record{}).
-			Where("user_id = ? AND source_url LIKE ?", user.ID, "%/apply_detail/"+id+"/%").
-			Count(&count)
-		if count > 0 {
+		if foundSet[id] {
 			existingIDs = append(existingIDs, id)
 		} else {
 			newIDs = append(newIDs, id)
@@ -180,8 +199,8 @@ func UpdateTitles(c *gin.Context) {
 			continue
 		}
 		result := db.DB.Model(&models.Record{}).
-			Where("user_id = ? AND source_url LIKE ? AND single_name != ?",
-				user.ID, "%/apply_detail/"+u.OrderID+"/%", u.SingleName).
+			Where("user_id = ? AND order_id = ? AND single_name != ?",
+				user.ID, u.OrderID, u.SingleName).
 			Updates(map[string]interface{}{
 				"single_name":   u.SingleName,
 				"single_number": u.SingleNumber,

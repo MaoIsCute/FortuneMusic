@@ -45,6 +45,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getRecords, getStatsByMember, getDetailStats } from '../api/index'
+import { sortMembersByGen } from '../utils/members'
 
 const records  = ref([])
 const total    = ref(0)
@@ -61,7 +62,7 @@ const roundList  = ref([])
 
 onMounted(async () => {
   const [membersRes, detailRes] = await Promise.all([getStatsByMember(), getDetailStats()])
-  memberList.value = (membersRes.data ?? []).map(m => m.member_name)
+  memberList.value = sortMembersByGen((membersRes.data ?? []).map(m => m.member_name))
   const rows = detailRes.data ?? []
   singleList.value = [...new Set(rows.map(r => r.single_name).filter(Boolean))].sort()
   roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) =>

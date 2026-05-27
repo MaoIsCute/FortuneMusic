@@ -16,15 +16,13 @@ const router = createRouter({
   routes,
 })
 
-const ADMIN_EMAIL = 'sam6666sunny@gmail.com'
-
 router.beforeEach((to) => {
   const auth = useAuthStore()
   if (!to.meta.public && !auth.isLoggedIn) {
     localStorage.setItem('redirectAfterLogin', to.fullPath)
     return { name: 'Login' }
   }
-  if (to.meta.admin && auth.user?.email !== ADMIN_EMAIL) {
+  if (to.meta.admin && !auth.user?.is_admin) {
     return { name: 'Dashboard' }
   }
 })

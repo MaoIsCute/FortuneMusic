@@ -14,6 +14,7 @@ type Config struct {
 	JWTSecret          string
 	AppURL             string
 	FrontendURL        string
+	AdminEmail         string
 }
 
 func Load() *Config {
@@ -28,5 +29,6 @@ func Load() *Config {
 		JWTSecret:          os.Getenv("JWT_SECRET"),
 		AppURL:             os.Getenv("APP_URL"),
 		FrontendURL:        os.Getenv("FRONTEND_URL"),
+		AdminEmail:         os.Getenv("ADMIN_EMAIL"),
 	}
 }

@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"fortune-tracker/db"
 	"fortune-tracker/models"
@@ -10,11 +12,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const adminEmail = "sam6666sunny@gmail.com"
+var configuredAdminEmail string
+
+func InitAdmin(email string) {
+	configuredAdminEmail = email
+}
 
 func checkAdmin(c *gin.Context) bool {
 	email, _ := c.Get("email")
-	if email != adminEmail {
+	if configuredAdminEmail == "" || email != configuredAdminEmail {
 		c.JSON(http.StatusForbidden, gin.H{"error": "管理者限定"})
 		return false
 	}
@@ -76,6 +82,41 @@ func GetTitleIssues(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+type AdminUser struct {
+	ID          uint       `json:"id"`
+	Email       string     `json:"email"`
+	Name        string     `json:"name"`
+	RecordCount int64      `json:"record_count"`
+	LastScraped *time.Time `json:"last_scraped"`
+}
+
+func GetAdminUsers(c *gin.Context) {
+	if !checkAdmin(c) {
+		return
+	}
+	var users []AdminUser
+	db.DB.Model(&models.User{}).
+		Select("users.id, users.email, users.name, COUNT(records.id) as record_count, MAX(records.scraped_at) as last_scraped").
+		Joins("LEFT JOIN records ON records.user_id = users.id").
+		Group("users.id, users.email, users.name").
+		Order("users.id").
+		Scan(&users)
+	c.JSON(http.StatusOK, users)
+}
+
+func DeleteUserRecords(c *gin.Context) {
+	if !checkAdmin(c) {
+		return
+	}
+	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的使用者 ID"})
+		return
+	}
+	result := db.DB.Where("user_id = ?", uint(targetID)).Delete(&models.Record{})
+	c.JSON(http.StatusOK, gin.H{"deleted": result.RowsAffected})
 }
 
 func FixSingleTitle(c *gin.Context) {

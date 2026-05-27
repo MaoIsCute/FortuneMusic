@@ -12,11 +12,13 @@ import (
 )
 
 func Setup(cfg *config.Config) *gin.Engine {
+	handlers.InitAdmin(cfg.AdminEmail)
 	r := gin.Default()
 
 	r.Use(cors.New(cors.Config{
 		AllowOriginFunc: func(origin string) bool {
 			return origin == "http://localhost:5173" ||
+				(cfg.FrontendURL != "" && origin == cfg.FrontendURL) ||
 				strings.HasPrefix(origin, "chrome-extension://")
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -26,6 +28,8 @@ func Setup(cfg *config.Config) *gin.Engine {
 
 	r.GET("/auth/google", handlers.GoogleLogin(cfg))
 	r.GET("/auth/google/callback", handlers.GoogleCallback(cfg))
+	r.POST("/auth/token", handlers.ExchangeToken)
+	r.POST("/auth/refresh", handlers.RefreshJWT(cfg))
 
 	// 供瀏覽器擴充功能使用（以 scrape_token 驗證，不需 JWT）
 	r.POST("/scrape", handlers.PublicScrape)
@@ -36,6 +40,8 @@ func Setup(cfg *config.Config) *gin.Engine {
 	api := r.Group("/api", middleware.AuthRequired(cfg))
 	{
 		api.GET("/me", handlers.GetMe)
+		api.GET("/admin/users", handlers.GetAdminUsers)
+		api.DELETE("/admin/users/:id/records", handlers.DeleteUserRecords)
 		api.GET("/admin/title-issues", handlers.GetTitleIssues)
 		api.PUT("/admin/title", handlers.FixSingleTitle)
 		api.GET("/scrape-token", handlers.GetScrapeToken)

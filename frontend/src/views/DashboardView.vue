@@ -171,6 +171,8 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { getStats, getDetailStats, getOrderSequenceStats } from '../api/index'
+import { useThemeStore } from '../stores/theme'
+import { MEMBERS, sortMembersByGen } from '../utils/members'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -179,114 +181,11 @@ import { CanvasRenderer } from 'echarts/renderers'
 
 use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
-const MEMBERS = {
-  // 1期
-  '秋元真夏':             { gen: 1, active: false },
-  '安藤美雲':             { gen: 1, active: false },
-  '生田絵梨花':           { gen: 1, active: false },
-  '生駒里奈':             { gen: 1, active: false },
-  '市來玲奈':             { gen: 1, active: false },
-  '伊藤かりん':           { gen: 1, active: false },
-  '伊藤寧寧':             { gen: 1, active: false },
-  '伊藤萬理華':           { gen: 1, active: false },
-  '岩瀬佑美子':           { gen: 1, active: false },
-  '衛藤美彩':             { gen: 1, active: false },
-  '大和里菜':             { gen: 1, active: false },
-  '川後陽菜':             { gen: 1, active: false },
-  '川村真洋':             { gen: 1, active: false },
-  '柏幸奈':               { gen: 1, active: false },
-  '斉藤優里':             { gen: 1, active: false },
-  '齋藤飛鳥':             { gen: 1, active: false },
-  '桜井玲香':             { gen: 1, active: false },
-  '相楽伊織':             { gen: 1, active: false },
-  '白石麻衣':             { gen: 1, active: false },
-  '高山一実':             { gen: 1, active: false },
-  '中元日芽香':           { gen: 1, active: false },
-  '能條愛未':             { gen: 1, active: false },
-  '永島聖羅':             { gen: 1, active: false },
-  '西野七瀬':             { gen: 1, active: false },
-  '橋本奈々未':           { gen: 1, active: false },
-  '畠中清羅':             { gen: 1, active: false },
-  '樋口日奈':             { gen: 1, active: false },
-  '深川麻衣':             { gen: 1, active: false },
-  '星野みなみ':           { gen: 1, active: false },
-  '松井玲奈':             { gen: 1, active: false },
-  '松村沙友理':           { gen: 1, active: false },
-  '宮澤成良':             { gen: 1, active: false },
-  '山本穂乃香':           { gen: 1, active: false },
-  '若月佑美':             { gen: 1, active: false },
-  '和田まあや':           { gen: 1, active: false },
-  '吉本彩華':             { gen: 1, active: false },
-  // 2期
-  '井上小百合':           { gen: 2, active: false },
-  '伊藤純奈':             { gen: 2, active: false },
-  '斎藤ちはる':           { gen: 2, active: false },
-  '佐々木琴子':           { gen: 2, active: false },
-  '新内眞衣':             { gen: 2, active: false },
-  '鈴木絢音':             { gen: 2, active: false },
-  '寺田蘭世':             { gen: 2, active: false },
-  '中田花奈':             { gen: 2, active: false },
-  '堀未央奈':             { gen: 2, active: false },
-  '北野日奈子':           { gen: 2, active: false },
-  '渡辺みり愛':           { gen: 2, active: false },
-  // 3期
-  '伊藤理々杏':           { gen: 3, active: true },
-  '岩本蓮加':             { gen: 3, active: true },
-  '吉田綾乃クリスティー': { gen: 3, active: true },
-  // 4期
-  '遠藤さくら':           { gen: 4, active: true },
-  '賀喜遥香':             { gen: 4, active: true },
-  '金川紗耶':             { gen: 4, active: true },
-  '黒見明香':             { gen: 4, active: true },
-  '柴田柚菜':             { gen: 4, active: true },
-  '田村真佑':             { gen: 4, active: true },
-  '筒井あやめ':           { gen: 4, active: true },
-  '林瑠奈':               { gen: 4, active: true },
-  '弓木奈於':             { gen: 4, active: true },
-  // 5期
-  '五百城茉央':           { gen: 5, active: true },
-  '池田瑛紗':             { gen: 5, active: true },
-  '一ノ瀬美空':           { gen: 5, active: true },
-  '井上和':               { gen: 5, active: true },
-  '岡本姫奈':             { gen: 5, active: true },
-  '小川彩':               { gen: 5, active: true },
-  '奥田いろは':           { gen: 5, active: true },
-  '川﨑桜':               { gen: 5, active: true },
-  '菅原咲月':             { gen: 5, active: true },
-  '冨里奈央':             { gen: 5, active: true },
-  '中西アルノ':           { gen: 5, active: true },
-  // 3期（卒業）
-  '梅澤美波':             { gen: 3, active: false },
-  '大園桃子':             { gen: 3, active: false },
-  '久保史緒里':           { gen: 3, active: false },
-  '阪口珠美':             { gen: 3, active: false },
-  '佐藤楓':               { gen: 3, active: false },
-  '中村麗乃':             { gen: 3, active: false },
-  '向井葉月':             { gen: 3, active: false },
-  '山崎怜奈':             { gen: 3, active: false },
-  '山下美月':             { gen: 3, active: false },
-  '与田祐希':             { gen: 3, active: false },
-  // 4期（卒業）
-  '掛橋沙耶香':           { gen: 4, active: false },
-  '北川悠理':             { gen: 4, active: false },
-  '清宮レイ':             { gen: 4, active: false },
-  '早川聖来':             { gen: 4, active: false },
-  '松尾美佑':             { gen: 4, active: false },
-  '矢久保美緒':           { gen: 4, active: false },
-  '佐藤璃果':             { gen: 4, active: false },
-  // 6期
-  '愛宕心響':             { gen: 6, active: true },
-  '大越ひなの':           { gen: 6, active: true },
-  '小津玲奈':             { gen: 6, active: true },
-  '海邉朱莉':             { gen: 6, active: true },
-  '川端晃菜':             { gen: 6, active: true },
-  '鈴木佑捺':             { gen: 6, active: true },
-  '瀬戸口心月':           { gen: 6, active: true },
-  '長嶋凛桜':             { gen: 6, active: true },
-  '増田三莉音':           { gen: 6, active: true },
-  '森平麗心':             { gen: 6, active: true },
-  '矢田萌華':             { gen: 6, active: true },
-}
+const themeStore = useThemeStore()
+const ct = computed(() => themeStore.isDark
+  ? { text: '#d4d8e3', sub: '#9aa3b5', line: '#3a3f5c' }
+  : { text: '#555',    sub: '#888',    line: '#e8e8e8' }
+)
 
 const overall  = ref({ total_applied: 0, total_won: 0, win_rate: 0 })
 const rows     = ref([])
@@ -480,7 +379,9 @@ const seqChartOption = computed(() => {
     applied: d.applied,
     won:     d.won,
   }))
+  const c = ct.value
   return {
+    backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
       formatter(params) {
@@ -489,23 +390,19 @@ const seqChartOption = computed(() => {
       },
     },
     grid: { top: 16, right: 24, bottom: 40, left: 54 },
-    xAxis: { type: 'category', data: labels },
+    xAxis: { type: 'category', data: labels, axisLabel: { color: c.text }, axisLine: { lineStyle: { color: c.line } } },
     yAxis: {
-      type: 'value',
-      min: 0,
-      max: 100,
-      axisLabel: { formatter: '{value}%' },
-      splitLine: { lineStyle: { type: 'dashed' } },
+      type: 'value', min: 0, max: 100,
+      axisLabel: { formatter: '{value}%', color: c.text },
+      splitLine: { lineStyle: { type: 'dashed', color: c.line } },
     },
     series: [{
       type: 'bar',
       data: data.map(d => ({
         value: d.value,
-        itemStyle: {
-          color: d.value >= 80 ? '#52c41a' : d.value >= 40 ? '#faad14' : '#ff4d4f',
-        },
+        itemStyle: { color: d.value >= 80 ? '#52c41a' : d.value >= 40 ? '#faad14' : '#ff4d4f' },
       })),
-      label: { show: true, position: 'top', formatter: '{c}%', fontSize: 12 },
+      label: { show: true, position: 'top', formatter: '{c}%', fontSize: 12, color: c.text },
     }],
   }
 })
@@ -515,7 +412,7 @@ const barFilterMember = ref('')
 const barFilterRound  = ref('')
 
 const allMembers = computed(() =>
-  [...new Set(rows.value.map(r => r.member_name))].sort((a, b) => a.localeCompare(b, 'ja'))
+  sortMembersByGen([...new Set(rows.value.map(r => r.member_name))])
 )
 
 const allRounds = computed(() => {
@@ -554,7 +451,9 @@ const sessionChartOption = computed(() => {
     return { value: rate, applied: d.applied, won: d.won }
   })
 
+  const c = ct.value
   return {
+    backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
       formatter(params) {
@@ -563,23 +462,19 @@ const sessionChartOption = computed(() => {
       },
     },
     grid: { top: 16, right: 24, bottom: 40, left: 54 },
-    xAxis: { type: 'category', data: sessions },
+    xAxis: { type: 'category', data: sessions, axisLabel: { color: c.text }, axisLine: { lineStyle: { color: c.line } } },
     yAxis: {
-      type: 'value',
-      min: 0,
-      max: 100,
-      axisLabel: { formatter: '{value}%' },
-      splitLine: { lineStyle: { type: 'dashed' } },
+      type: 'value', min: 0, max: 100,
+      axisLabel: { formatter: '{value}%', color: c.text },
+      splitLine: { lineStyle: { type: 'dashed', color: c.line } },
     },
     series: [{
       type: 'bar',
       data: data.map(d => ({
         value: d.value,
-        itemStyle: {
-          color: d.value >= 80 ? '#52c41a' : d.value >= 40 ? '#faad14' : '#ff4d4f',
-        },
+        itemStyle: { color: d.value >= 80 ? '#52c41a' : d.value >= 40 ? '#faad14' : '#ff4d4f' },
       })),
-      label: { show: true, position: 'top', formatter: '{c}%', fontSize: 12 },
+      label: { show: true, position: 'top', formatter: '{c}%', fontSize: 12, color: c.text },
     }],
   }
 })
@@ -676,7 +571,9 @@ const chartOption = computed(() => {
     },
   ]
 
+  const c = ct.value
   return {
+    backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
       formatter(params) {
@@ -689,15 +586,13 @@ const chartOption = computed(() => {
         return html
       },
     },
-    legend: { data: [...members, '全部'], bottom: 0, type: 'scroll', selected: legendSelected.value },
+    legend: { data: [...members, '全部'], bottom: 0, type: 'scroll', selected: legendSelected.value, textStyle: { color: c.text } },
     grid: { top: 16, right: 24, bottom: 56, left: 54 },
-    xAxis: { type: 'category', data: xLabels },
+    xAxis: { type: 'category', data: xLabels, axisLabel: { color: c.text }, axisLine: { lineStyle: { color: c.line } } },
     yAxis: {
-      type: 'value',
-      min: 0,
-      max: 100,
-      axisLabel: { formatter: '{value}%' },
-      splitLine: { lineStyle: { type: 'dashed' } },
+      type: 'value', min: 0, max: 100,
+      axisLabel: { formatter: '{value}%', color: c.text },
+      splitLine: { lineStyle: { type: 'dashed', color: c.line } },
     },
     series,
   }
@@ -885,4 +780,37 @@ const chartOption = computed(() => {
 .rate.high { color: #52c41a; }
 .rate.mid  { color: #faad14; }
 .rate.low  { color: #ff4d4f; }
+
+/* ── 深色模式 ── */
+html.dark .stat-card  { background: #1e2030; box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
+html.dark .stat-label { color: #9aa3b5; }
+html.dark .stat-value { color: #e8eaf0; }
+
+html.dark .chart-card  { background: #1e2030; box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
+html.dark .chart-title { color: #d4d8e3; }
+html.dark .chart-empty { color: #6b7490; }
+
+html.dark .range-btn         { background: #252840; border-color: #3a3f5c; color: #b8bfcc; }
+html.dark .range-btn:hover   { border-color: var(--color-primary); color: var(--color-primary); }
+html.dark .range-btn.active  { background: var(--color-primary); border-color: var(--color-primary); color: white; }
+html.dark .range-divider     { color: #3a3f5c; }
+
+html.dark .member-card           { background: #1e2030; box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
+html.dark .member-header:hover   { background: #252840; }
+html.dark .member-name           { color: #e8eaf0; }
+html.dark .member-summary        { color: #9aa3b5; }
+html.dark .chevron               { color: #4a5270; }
+
+html.dark .single-card           { border-color: #2e3450; }
+html.dark .single-header         { background: #252840; }
+html.dark .single-header:hover   { background: #2c3154; }
+html.dark .single-summary        { color: #9aa3b5; }
+
+html.dark .round-card            { border-color: #2e3450; }
+html.dark .round-header          { background: #1a1f3a; }
+html.dark .round-header:hover    { background: #20264a; }
+html.dark .round-summary         { color: #9aa3b5; }
+
+html.dark .detail-table th       { background: #252840; color: #9aa3b5; }
+html.dark .detail-table td       { border-bottom-color: #2e3450; color: #d4d8e3; }
 </style>

@@ -1,6 +1,8 @@
 # env
 .env
 *.env
+.env.local
+frontend/.env.local
 
 # Go
 backend/fortune-tracker

@@ -2,10 +2,42 @@
   <div class="page">
     <h1 class="page-title">🔧 管理</h1>
 
+    <!-- 使用者管理 -->
+    <el-card class="section">
+      <template #header>
+        <span>使用者管理</span>
+        <el-button style="float:right" size="small" @click="loadUsers">重新整理</el-button>
+      </template>
+
+      <el-table :data="users" stripe>
+        <el-table-column prop="email" label="Email" />
+        <el-table-column prop="name" label="名稱" width="120" />
+        <el-table-column prop="record_count" label="筆數" width="80" />
+        <el-table-column label="最後同步" width="170">
+          <template #default="{ row }">
+            {{ row.last_scraped ? row.last_scraped.replace('T', ' ').slice(0, 16) : '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="" width="120">
+          <template #default="{ row }">
+            <el-button
+              type="danger"
+              size="small"
+              :disabled="row.record_count === 0"
+              @click="confirmDelete(row)"
+            >
+              清除資料
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <!-- タイトル未定 修正 -->
     <el-card class="section">
       <template #header>
         <span>タイトル未定 修正</span>
-        <el-button style="float:right" size="small" @click="load">重新整理</el-button>
+        <el-button style="float:right" size="small" @click="loadIssues">重新整理</el-button>
       </template>
 
       <div v-if="issues.length === 0" class="empty">目前沒有 タイトル未定 的紀錄</div>
@@ -46,14 +78,26 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { getAdminTitleIssues, fixSingleTitle } from '../api/index'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getAdminTitleIssues, fixSingleTitle, getAdminUsers, deleteUserRecords } from '../api/index'
 
 const router = useRouter()
-
+const users  = ref([])
 const issues = ref([])
 
-async function load() {
+async function loadUsers() {
+  try {
+    const res = await getAdminUsers()
+    users.value = res.data ?? []
+  } catch (e) {
+    if (e.response?.status === 403) {
+      ElMessage.error('無權限')
+      router.replace('/dashboard')
+    }
+  }
+}
+
+async function loadIssues() {
   try {
     const res = await getAdminTitleIssues()
     issues.value = (res.data ?? []).map(item => ({
@@ -61,11 +105,21 @@ async function load() {
       _input:   item.suggested_name || '',
       _loading: false,
     }))
+  } catch {}
+}
+
+async function confirmDelete(row) {
+  try {
+    await ElMessageBox.confirm(
+      `確定要清除 ${row.email} 的全部 ${row.record_count} 筆資料嗎？此操作無法復原。`,
+      '清除確認',
+      { confirmButtonText: '確定清除', cancelButtonText: '取消', type: 'warning' }
+    )
+    const res = await deleteUserRecords(row.id)
+    ElMessage.success(`已清除 ${res.data.deleted} 筆`)
+    await loadUsers()
   } catch (e) {
-    if (e.response?.status === 403) {
-      ElMessage.error('無權限')
-      router.replace('/dashboard')
-    }
+    if (e !== 'cancel') ElMessage.error(e.response?.data?.error || '清除失敗')
   }
 }
 
@@ -78,7 +132,7 @@ async function fix(row) {
   try {
     const res = await fixSingleTitle(row.single_number, row._input.trim())
     ElMessage.success(`已更新 ${res.data.updated} 筆`)
-    await load()
+    await loadIssues()
   } catch (e) {
     ElMessage.error(e.response?.data?.error || '更新失敗')
   } finally {
@@ -86,7 +140,10 @@ async function fix(row) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  loadUsers()
+  loadIssues()
+})
 </script>
 
 <style scoped>

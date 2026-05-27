@@ -75,9 +75,10 @@ async function scrapeListPage(pageNum) {
   return { orders, hasMore: true }
 }
 
-// ─── 階段二：只抓新訂單的 detail page ────────────────────────────────────────
+// ─── 階段二：只抓新訂單的 detail page（4 個並行一批）──────────────────────────
 // entries = [{id, info}]（只傳新訂單進來）
 async function fetchOrderDetails(entries) {
+  const CONCURRENCY = 4
   const itemRe = /^(.+?)【(\d{1,2}\/\d{1,2})\s+(第\d+部)】(.+)$/
 
   function parseProductName(text) {
@@ -108,17 +109,16 @@ async function fetchOrderDetails(entries) {
     return fallback
   }
 
-  const parser  = new DOMParser()
-  const records = []
+  const parser = new DOMParser()
 
-  for (const { id, info: applyInfo } of entries) {
+  async function fetchSingleOrder({ id, info: applyInfo }) {
     let res
-    try { res = await fetch(`/mypage/apply_detail/${id}/`) } catch { continue }
-    if (!res.ok) continue
+    try { res = await fetch(`/mypage/apply_detail/${id}/`) } catch { return [] }
+    if (!res.ok) return []
 
-    const detailDoc   = parser.parseFromString(await res.text(), 'text/html')
-    const sourceBase  = `https://fortunemusic.jp/mypage/apply_detail/${id}/`
-    const aggregated  = {}
+    const detailDoc  = parser.parseFromString(await res.text(), 'text/html')
+    const sourceBase = `https://fortunemusic.jp/mypage/apply_detail/${id}/`
+    const aggregated = {}
 
     detailDoc.querySelectorAll('tbody tr:not(.tblCatLast)').forEach(row => {
       const nameTd = row.querySelector('td:first-child')
@@ -161,7 +161,14 @@ async function fetchOrderDetails(entries) {
       }
     })
 
-    Object.values(aggregated).forEach(rec => records.push(rec))
+    return Object.values(aggregated)
+  }
+
+  const records = []
+  for (let i = 0; i < entries.length; i += CONCURRENCY) {
+    const batch = entries.slice(i, i + CONCURRENCY)
+    const batchResults = await Promise.all(batch.map(fetchSingleOrder))
+    batchResults.forEach(r => records.push(...r))
   }
 
   return { records }

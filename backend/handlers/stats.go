@@ -1,15 +1,13 @@
 ﻿package handlers
 
 import (
-"fmt"
-"net/http"
-"regexp"
-"sort"
+	"fmt"
+	"net/http"
 
-"fortune-tracker/db"
-"fortune-tracker/models"
+	"fortune-tracker/db"
+	"fortune-tracker/models"
 
-"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
 )
 
 func getUserID(c *gin.Context) uint {
@@ -265,85 +263,64 @@ c.JSON(http.StatusOK, gin.H{
 })
 }
 
-// GetOrderSequenceStats 計算二抽各張訂單序號的中選率
-// 從 source_url 提取 order ID，同 (event_date, session) 群組內依序排列
+// GetOrderSequenceStats 計算各張應募訂單序號的中選率（依 order_id 排序）
 func GetOrderSequenceStats(c *gin.Context) {
 	userID := getUserID(c)
+	member := c.Query("member")
+	session := c.Query("session")
+	round := c.Query("round")
 
-	query := db.DB.Model(&models.Record{}).Where("user_id = ?", userID)
-	if member := c.Query("member"); member != "" {
-		query = query.Where("member_name = ?", member)
-	}
-	if session := c.Query("session"); session != "" {
-		query = query.Where("session = ?", session)
-	}
-	if round := c.Query("round"); round != "" {
-		query = query.Where("lottery_round = ?", round)
+	type result struct {
+		Position int     `json:"position"`
+		Applied  int     `json:"applied"`
+		Won      int     `json:"won"`
+		WinRate  float64 `json:"win_rate"`
 	}
 
-	var records []models.Record
-	query.Find(&records)
+	const q = `
+WITH ranked AS (
+  SELECT applied_count, won_count,
+    ROW_NUMBER() OVER (
+      PARTITION BY event_date, session
+      ORDER BY order_id
+    ) AS position
+  FROM records
+  WHERE user_id = ?
+    AND (? = '' OR member_name = ?)
+    AND (? = '' OR session     = ?)
+    AND (? = '' OR lottery_round = ?)
+)
+SELECT
+  position,
+  SUM(applied_count)                                                        AS applied,
+  SUM(won_count)                                                            AS won,
+  ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count), 0) * 100, 1)  AS win_rate
+FROM ranked
+GROUP BY position
+ORDER BY position`
 
-	if len(records) == 0 {
+	var rows []result
+	db.DB.Raw(q, userID, member, member, session, session, round, round).Scan(&rows)
+
+	if len(rows) == 0 {
 		c.JSON(http.StatusOK, []struct{}{})
 		return
 	}
 
-	// 依 (event_date, session) 分群
-	type groupKey struct{ EventDate, Session string }
-	groups := map[groupKey][]models.Record{}
-	for _, r := range records {
-		key := groupKey{r.EventDate, r.Session}
-		groups[key] = append(groups[key], r)
-	}
-
-	orderIDRe := regexp.MustCompile(`/apply_detail/([^/]+)/`)
-
-	// 各群組內依 order ID 排序，累加各位置的 applied / won
-	posAgg := map[int]struct{ applied, won int }{}
-	for _, recs := range groups {
-		sort.Slice(recs, func(i, j int) bool {
-			mi := orderIDRe.FindStringSubmatch(recs[i].SourceURL)
-			mj := orderIDRe.FindStringSubmatch(recs[j].SourceURL)
-			idI, idJ := "", ""
-			if len(mi) > 1 { idI = mi[1] }
-			if len(mj) > 1 { idJ = mj[1] }
-			return idI < idJ
-		})
-		for pos, rec := range recs {
-			p := posAgg[pos+1]
-			p.applied += rec.AppliedCount
-			p.won += rec.WonCount
-			posAgg[pos+1] = p
-		}
-	}
-
-	// 排序位置並組成回傳結果
-	positions := make([]int, 0, len(posAgg))
-	for p := range posAgg { positions = append(positions, p) }
-	sort.Ints(positions)
-
-	type result struct {
+	type out struct {
 		Position string  `json:"position"`
 		Applied  int     `json:"applied"`
 		Won      int     `json:"won"`
 		WinRate  float64 `json:"win_rate"`
 	}
-	out := make([]result, 0, len(positions))
-	for _, p := range positions {
-		agg := posAgg[p]
-		rate := 0.0
-		if agg.applied > 0 {
-			rate = float64(agg.won) / float64(agg.applied) * 100
+	res := make([]out, len(rows))
+	for i, r := range rows {
+		res[i] = out{
+			Position: fmt.Sprintf("第%d筆", r.Position),
+			Applied:  r.Applied,
+			Won:      r.Won,
+			WinRate:  r.WinRate,
 		}
-		var wr float64
-		fmt.Sscanf(fmt.Sprintf("%.1f", rate), "%f", &wr)
-		out = append(out, result{
-			Position: fmt.Sprintf("第%d筆", p),
-			Applied:  agg.applied,
-			Won:      agg.won,
-			WinRate:  wr,
-		})
 	}
-	c.JSON(http.StatusOK, out)
+	c.JSON(http.StatusOK, res)
 }

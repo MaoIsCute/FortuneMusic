@@ -16,7 +16,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { getMe } from '../api/index'
+import { exchangeToken, getMe } from '../api/index'
 
 const router = useRouter()
 const route = useRoute()
@@ -24,12 +24,19 @@ const auth = useAuthStore()
 const error = ref('')
 
 onMounted(async () => {
-  const token = route.query.token
-  if (!token) {
-    error.value = '未取得 token'
+  const code = route.query.code
+  if (!code) {
+    error.value = '未取得授權碼'
     return
   }
-  auth.setToken(token)
+  try {
+    const res = await exchangeToken(code)
+    auth.setToken(res.data.token)
+    auth.setRefreshToken(res.data.refresh_token)
+  } catch {
+    error.value = '登入失敗，請重試'
+    return
+  }
   try {
     const res = await getMe()
     auth.setUser(res.data)
