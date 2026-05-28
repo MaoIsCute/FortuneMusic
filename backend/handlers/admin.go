@@ -106,6 +106,20 @@ func GetAdminUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, users)
 }
 
+func buildDeleteQuery(c *gin.Context, targetID uint, model interface{}) int64 {
+	q := db.DB.Where("user_id = ?", targetID)
+	if sn := c.Query("single_number"); sn != "" {
+		q = q.Where("single_number = ?", sn)
+	}
+	if from := c.Query("date_from"); from != "" {
+		q = q.Where("event_date >= ?", from)
+	}
+	if to := c.Query("date_to"); to != "" {
+		q = q.Where("event_date <= ?", to)
+	}
+	return q.Delete(model).RowsAffected
+}
+
 func DeleteUserRecords(c *gin.Context) {
 	if !checkAdmin(c) {
 		return
@@ -115,8 +129,21 @@ func DeleteUserRecords(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的使用者 ID"})
 		return
 	}
-	result := db.DB.Where("user_id = ?", uint(targetID)).Delete(&models.Record{})
-	c.JSON(http.StatusOK, gin.H{"deleted": result.RowsAffected})
+	deleted := buildDeleteQuery(c, uint(targetID), &models.Record{})
+	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
+}
+
+func DeleteUserFullRecords(c *gin.Context) {
+	if !checkAdmin(c) {
+		return
+	}
+	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的使用者 ID"})
+		return
+	}
+	deleted := buildDeleteQuery(c, uint(targetID), &models.FullRecord{})
+	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
 }
 
 func FixSingleTitle(c *gin.Context) {

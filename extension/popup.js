@@ -369,121 +369,91 @@ scrapeBtn.addEventListener('click', async () => {
 })
 
 // ─── 全握：注入 ticket.fortunemeets.app 的爬蟲函式 ─────────────────────────────
-// 此函式在目標頁面 context 執行，用 args 傳入 singleNum
-// 回傳 { records: [...], empty: bool, error?: string }
+// DOM 結構（實測）：
+//   div.result.win/lose
+//     div
+//       div.result-body
+//         span.tag.win/lose          → 当選 / 落選
+//         div > div                  → <p> 日期＠場地, <p> 第N部, <p> 成員名
+//       div.flex-shrink-0            → N枚（N口）
 async function scrapeFullPage(singleNum) {
   function ordinalSuffix(n) {
-    const mod10 = n % 10, mod100 = n % 100
-    if (mod100 >= 11 && mod100 <= 13) return 'th'
-    if (mod10 === 1) return 'st'
-    if (mod10 === 2) return 'nd'
-    if (mod10 === 3) return 'rd'
-    return 'th'
+    const v = n % 100, d = n % 10
+    if (v >= 11 && v <= 13) return 'th'
+    return d === 1 ? 'st' : d === 2 ? 'nd' : d === 3 ? 'rd' : 'th'
+  }
+  function toHalf(s) {
+    return (s || '').replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  }
+  function classifyVenue(v) {
+    return /幕張|東京|Makuhari/i.test(v || '') ? '東京' : '地方'
   }
 
-  function classifyVenue(venueName) {
-    if (!venueName) return ''
-    if (/幕張|東京|Makuhari/i.test(venueName)) return '東京'
-    return '地方'
-  }
-
-  // Wait for SPA content to render (up to 12s)
-  const startWait = Date.now()
-  while (Date.now() - startWait < 12000) {
-    const t = document.body.innerText || ''
-    if (t.includes('当選') || t.includes('落選') || t.includes('応募なし') || t.includes('履歴がありません')) break
+  // SPA 渲染等待
+  const t0 = Date.now()
+  while (Date.now() - t0 < 12000) {
+    if (document.querySelector('div.result')) break
     await new Promise(r => setTimeout(r, 400))
   }
-
-  const bodyText = document.body.innerText || ''
-  if (!bodyText.includes('当選') && !bodyText.includes('落選')) {
+  if (!document.querySelector('div.result')) {
     return { records: [], empty: true }
   }
 
-  // ── ページ全体のテキストを行単位で解析 ──────────────────────────────────────
-  // 期待する行フォーマット（セルのテキストを連結したもの）:
-  //   実体: "当選　2026年5月2日（土）@京都パルスプラザ　第1部　五百城茉央　1枚（1口）"
-  //   線上: "当選　2026年5月17日（日）第1部　奥田いろは・柴田妍菜　2枚（2口）"
-  //
-  // 行から判別できる項目:
-  //   status       = 当選 / 落選
-  //   date         = YYYY年M月D日
-  //   @venue       = @〇〇 (実体のみ)
-  //   session      = 第N部
-  //   member_name  = 残りの非数値テキスト
-  //   count        = N口
+  const seenKeys = new Set()
+  const records  = []
 
-  const dateRe    = /(\d{4})年(\d{1,2})月(\d{1,2})日[（(][^)）]*[)）]/
-  const venueRe   = /@([^　\s第]+)/
-  const sessionRe = /(第\d+部)/
-  const countRe   = /(\d+)口/
-
-  const records = []
-  const sourceURL = window.location.href
-
-  // 全テーブル行を走査
-  document.querySelectorAll('tr').forEach(row => {
-    const text = row.innerText.replace(/\s+/g, ' ').trim()
-
-    const isWon  = text.includes('当選')
-    const isLost = text.includes('落選')
+  document.querySelectorAll('div.result').forEach(row => {
+    const tag    = row.querySelector('span.tag')
+    if (!tag) return
+    const cls    = tag.className || ''
+    const text   = (tag.innerText || '').trim()
+    const isWon  = cls.includes('win')  || text.includes('当選')
+    const isLost = cls.includes('lose') || text.includes('落選')
     if (!isWon && !isLost) return
+    const status = isWon ? '当選' : '落選'
 
-    const dm = text.match(dateRe)
-    if (!dm) return
+    // 找所有 <p>，依內容分類
+    const ps = Array.from(row.querySelectorAll('p')).map(p => toHalf((p.innerText || '').trim()))
+    let dateLine = '', session = '', memberName = ''
+    for (const text of ps) {
+      if (text.match(/\d{4}年\d{1,2}月\d{1,2}日/)) { dateLine = text; continue }
+      if (text.match(/第\d+部/))                     { session  = text; continue }
+      if (!memberName && text.length >= 2)           { memberName = text }
+    }
+    // session 有時包在 dateLine 裡（線上格式）
+    if (!session) {
+      const sm = dateLine.match(/(第\d+部)/)
+      if (sm) session = sm[1]
+    }
 
-    const year = parseInt(dm[1]), month = parseInt(dm[2]), day = parseInt(dm[3])
-    const eventDate = `${year}/${month}/${day}`
+    const dm = dateLine.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/)
+    if (!dm || !session || !memberName) return
+    const eventDate = `${parseInt(dm[1])}/${parseInt(dm[2])}/${parseInt(dm[3])}`
 
-    const vm      = text.match(venueRe)
-    const venue   = vm ? classifyVenue(vm[1]) : ''
-    const eventType = vm ? '実体' : '線上'
+    const atIdx     = dateLine.indexOf('@')
+    const venue     = atIdx >= 0 ? classifyVenue(dateLine.slice(atIdx + 1)) : ''
+    const eventType = atIdx >= 0 ? '実体' : '線上'
 
-    const sm      = text.match(sessionRe)
-    const session = sm ? sm[1] : ''
+    const countText = toHalf((row.querySelector('.flex-shrink-0')?.innerText || ''))
+    const cm        = countText.match(/(\d+)口/)
+    const count     = cm ? parseInt(cm[1]) : 1
 
-    const cm    = text.match(countRe)
-    const count = cm ? parseInt(cm[1]) : 1
-
-    // 成員名: 去除已知欄位後剩餘的日文文字
-    let memberName = text
-      .replace(/当選|落選|抽選中/g, '')
-      .replace(dateRe, '')
-      .replace(venueRe, '')
-      .replace(sessionRe, '')
-      .replace(/\d+枚（\d+口）|\d+口/g, '')
-      .replace(/@[^\s　]*/g, '')
-      .replace(/[ぁ-ん]{0,0}/g, '') // no-op placeholder
-      .trim()
-      .replace(/\s+/g, ' ')
-
-    // 取最後一個實質詞塊（成員名通常在 session 之後）
-    const afterSession = text.split(session).pop() || ''
-    const memberMatch  = afterSession
-      .replace(/\d+枚（\d+口）|\d+口/g, '')
-      .trim()
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (memberMatch) memberName = memberMatch
-
-    if (!memberName || memberName.length < 2) return
-
-    const suffix  = ordinalSuffix(singleNum)
-    const sName   = `${singleNum}${suffix}シングル`
-    const orderID = `full:${singleNum}:${eventType}:${venue}:${eventDate}:${session}:${memberName}`
+    const key = `${singleNum}:${eventType}:${venue}:${eventDate}:${session}:${memberName}:${status}`
+    if (seenKeys.has(key)) return
+    seenKeys.add(key)
 
     records.push({
-      order_id:      orderID,
+      order_id:      `full:${key}`,
       single_number: singleNum,
-      single_name:   sName,
+      single_name:   `${singleNum}${ordinalSuffix(singleNum)}シングル`,
       event_type:    eventType,
       venue,
       event_date:    eventDate,
       session,
       member_name:   memberName,
       applied_count: count,
-      won_count:     isWon ? count : 0,
-      source_url:    sourceURL,
+      won_count:     status === '当選' ? count : 0,
+      source_url:    window.location.href,
     })
   })
 
@@ -498,10 +468,17 @@ function setFullWaitingMode(on) {
 
 // 步驟一：開啟全握歷史頁
 fullSyncBtn.addEventListener('click', async () => {
-  await chrome.tabs.create({ url: 'https://ticket.fortunemeets.app/', active: true })
+  const startNum = parseInt(fullStartEl.value) || 41
+  const mod10 = startNum % 10, mod100 = startNum % 100
+  const suffix = (mod100 >= 11 && mod100 <= 13) ? 'th'
+    : mod10 === 1 ? 'st' : mod10 === 2 ? 'nd' : mod10 === 3 ? 'rd' : 'th'
+  await chrome.tabs.create({
+    url: `https://ticket.fortunemeets.app/nogizaka46/${startNum}${suffix}#/history`,
+    active: true,
+  })
   setFullWaitingMode(true)
   showResult('info',
-    '已開啟 ticket.fortunemeets.app。\n\n' +
+    '已開啟全握歷史頁面。\n\n' +
     '① 如未登入，請先登入\n' +
     '② 確認可看到歷史記錄後\n' +
     '③ 點「開始全握抓取」'
@@ -525,9 +502,9 @@ fullScrapeBtn.addEventListener('click', async () => {
   const MAX_EMPTY  = 3  // 連續 N 個空頁就停止自動掃
 
   try {
-    const tabs = await chrome.tabs.query({ url: 'https://ticket.fortunemeets.app/*' })
+    const tabs = await chrome.tabs.query({ url: 'https://ticket.fortunemeets.app/nogizaka46/*' })
     if (tabs.length === 0) {
-      showResult('error', '找不到 ticket.fortunemeets.app 分頁，請先點「全握同步」')
+      showResult('error', '找不到 ticket.fortunemeets.app 分頁，請先點「全握同步」開啟頁面')
       return
     }
     const tabId = tabs[0].id
@@ -544,7 +521,7 @@ fullScrapeBtn.addEventListener('click', async () => {
       showResult('info', `正在掃描第 ${ordinal} 單...`)
 
       // 導航到目標頁
-      await chrome.tabs.update(tabId, { url: `https://ticket.fortunemeets.app/nogizaka46/${ordinal}` })
+      await chrome.tabs.update(tabId, { url: `https://ticket.fortunemeets.app/nogizaka46/${ordinal}#/history` })
 
       // 等待頁面 load 完成
       await new Promise(resolve => {

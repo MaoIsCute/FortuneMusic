@@ -43,6 +43,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/me", handlers.GetMe)
 		api.GET("/admin/users", handlers.GetAdminUsers)
 		api.DELETE("/admin/users/:id/records", handlers.DeleteUserRecords)
+		api.DELETE("/admin/users/:id/full-records", handlers.DeleteUserFullRecords)
 		api.GET("/admin/title-issues", handlers.GetTitleIssues)
 		api.PUT("/admin/title", handlers.FixSingleTitle)
 		api.GET("/scrape-token", handlers.GetScrapeToken)
