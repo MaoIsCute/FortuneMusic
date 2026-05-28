@@ -1,100 +1,58 @@
 <template>
   <div class="page">
-    <h1 class="page-title">爬蟲</h1>
-
-    <div class="scrape-card">
-      <h2 class="section-title">瀏覽器擴充功能（推薦）</h2>
-      <p class="desc">
-        安裝擴充功能後，在 Fortune Music 網站登入，點擊擴充功能圖示即可自動同步。
-        首次使用需在擴充功能內輸入下方的 Token。
-      </p>
-      <div class="token-row">
-        <el-input
-          v-model="scrapeToken"
-          readonly
-          placeholder="點擊「取得 Token」生成"
-        />
-        <el-button @click="fetchToken" :loading="tokenLoading">取得 Token</el-button>
-        <el-button v-if="scrapeToken" @click="copyToken">複製</el-button>
-      </div>
-      <p class="hint">後端網址：{{ apiUrl }}</p>
-    </div>
-
-    <div class="scrape-card" style="margin-top: 20px">
-      <h2 class="section-title">手動輸入 Cookie</h2>
-      <p class="desc">請從瀏覽器複製 Fortune Music 的 Cookie 並貼上：</p>
-      <el-input
-        v-model="cookie"
-        type="textarea"
-        :rows="4"
-        placeholder="貼上 Cookie..."
-      />
-      <el-button
-        type="primary"
-        :loading="loading"
-        @click="showConfirm"
-        style="margin-top: 16px; width: 100%"
-      >
-        執行爬蟲
+    <h1 class="page-title">擴充功能設定</h1>
+    <div class="setup-card">
+      <p class="desc">點擊下方按鈕，自動將你的 Token 與後端網址傳送至擴充功能，完成一鍵設定。</p>
+      <el-button type="primary" size="large" :loading="loading" @click="authorize">
+        授權擴充功能
       </el-button>
-      <div v-if="result" class="result">{{ result }}</div>
+      <p v-if="statusMsg" :class="['status-msg', statusType]">{{ statusMsg }}</p>
     </div>
-
-    <el-dialog v-model="dialogVisible" title="確認" width="400px">
-      <p>Cookie 將傳送至伺服器用於爬蟲，執行完畢後不會永久保存。確定要繼續嗎？</p>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="doScrape">確認執行</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { triggerScrape, getScrapeToken } from '../api/index'
+import { getScrapeToken } from '../api/index'
 
-const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+const EXTENSION_ID = 'gdclpkfeiocedicokoenhconeoocigeh'
 
-const cookie = ref('')
-const loading = ref(false)
-const result = ref('')
-const dialogVisible = ref(false)
+const loading   = ref(false)
+const statusMsg = ref('')
+const statusType = ref('')
 
-const scrapeToken = ref('')
-const tokenLoading = ref(false)
-
-async function fetchToken() {
-  tokenLoading.value = true
+async function authorize() {
+  loading.value   = true
+  statusMsg.value = ''
   try {
     const res = await getScrapeToken()
-    scrapeToken.value = res.data.scrape_token
-  } catch {
-    ElMessage.error('取得 Token 失敗')
-  } finally {
-    tokenLoading.value = false
-  }
-}
+    const token      = res.data.scrape_token
+    const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 
-function copyToken() {
-  navigator.clipboard.writeText(scrapeToken.value)
-  ElMessage.success('已複製')
-}
+    await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        EXTENSION_ID,
+        { type: 'FORTUNE_SETUP', token, backendUrl },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message))
+          } else if (response?.success) {
+            resolve()
+          } else {
+            reject(new Error('擴充功能回應失敗'))
+          }
+        }
+      )
+    })
 
-function showConfirm() {
-  if (!cookie.value.trim()) return
-  dialogVisible.value = true
-}
-
-async function doScrape() {
-  dialogVisible.value = false
-  loading.value = true
-  try {
-    const res = await triggerScrape(cookie.value)
-    result.value = res.data.message
-  } catch {
-    result.value = '爬蟲失敗，請確認 Cookie 是否正確'
+    statusMsg.value  = '授權成功！擴充功能已設定完成。'
+    statusType.value = 'success'
+  } catch (e) {
+    const msg = e.message || ''
+    statusMsg.value = msg.includes('Could not establish connection') || msg.includes('Extension')
+      ? '找不到擴充功能，請確認已安裝並啟用。'
+      : msg
+    statusType.value = 'error'
   } finally {
     loading.value = false
   }
@@ -102,16 +60,18 @@ async function doScrape() {
 </script>
 
 <style scoped>
-.scrape-card {
+.setup-card {
   background: white;
   border-radius: 12px;
-  padding: 32px;
-  max-width: 600px;
+  padding: 40px 32px;
+  max-width: 480px;
   box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
-.section-title { font-size: 16px; font-weight: bold; margin: 0 0 12px; }
-.desc { color: #666; margin-bottom: 16px; }
-.token-row { display: flex; gap: 8px; align-items: center; }
-.hint { color: #aaa; font-size: 12px; margin-top: 8px; }
-.result { margin-top: 16px; padding: 12px; border-radius: 8px; background: #f5f5f5; }
+.desc { color: #555; line-height: 1.6; margin: 0; }
+.status-msg { margin: 0; font-size: 14px; }
+.status-msg.success { color: #52c41a; }
+.status-msg.error   { color: #ff4d4f; }
 </style>

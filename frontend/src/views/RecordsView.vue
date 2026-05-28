@@ -36,7 +36,7 @@
         :page-size="pageSize"
         :total="total"
         layout="total, prev, pager, next"
-        @current-change="loadRecords"
+        @current-change="fetchPage"
       />
     </div>
   </div>

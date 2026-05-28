@@ -199,13 +199,12 @@ function buildSingleName(info) {
 async function init() {
   const data = await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
   if (data[BACKEND_KEY] && data[TOKEN_KEY]) showMain(data[BACKEND_KEY])
-  else showSetup(data[BACKEND_KEY] || '')
+  else showSetup()
 }
 
-function showSetup(defaultUrl) {
+function showSetup() {
   setupPage.style.display = 'block'
   mainPage.style.display  = 'none'
-  document.getElementById('backendUrl').value = defaultUrl || 'http://localhost:8080'
 }
 
 function showMain(backendUrl) {
@@ -226,18 +225,11 @@ function setWaitingMode(on) {
   scrapeBtn.style.display = on ? 'block' : 'none'
 }
 
-document.getElementById('saveBtn').addEventListener('click', async () => {
-  const backendUrl  = document.getElementById('backendUrl').value.trim()
-  const scrapeToken = document.getElementById('scrapeToken').value.trim()
-  if (!backendUrl || !scrapeToken) { alert('請填入所有欄位'); return }
-  await chrome.storage.local.set({ [BACKEND_KEY]: backendUrl, [TOKEN_KEY]: scrapeToken })
-  showMain(backendUrl)
+document.getElementById('openAppBtn').addEventListener('click', () => {
+  chrome.tabs.create({ url: 'http://localhost:5173/scrape' })
 })
 
-document.getElementById('settingsBtn').addEventListener('click', async () => {
-  const data = await chrome.storage.local.get([BACKEND_KEY])
-  showSetup(data[BACKEND_KEY] || '')
-})
+document.getElementById('settingsBtn').addEventListener('click', showSetup)
 
 // 步驟一：開啟申請列表分頁
 syncBtn.addEventListener('click', async () => {
@@ -369,6 +361,16 @@ scrapeBtn.addEventListener('click', async () => {
   } finally {
     scrapeBtn.disabled    = false
     scrapeBtn.textContent = '開始抓取'
+  }
+})
+
+// 授權成功後自動切換到主頁面（不需要重新開啟 popup）
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return
+  if (changes.scrapeToken || changes.backendUrl) {
+    chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY], (data) => {
+      if (data[BACKEND_KEY] && data[TOKEN_KEY]) showMain(data[BACKEND_KEY])
+    })
   }
 })
 

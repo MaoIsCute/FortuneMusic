@@ -4,7 +4,7 @@
     <div class="links">
       <router-link to="/dashboard">總覽</router-link>
       <router-link to="/records">紀錄</router-link>
-      <router-link to="/scrape">爬蟲</router-link>
+      <router-link to="/scrape">擴充功能</router-link>
       <router-link v-if="isAdmin" to="/admin">管理</router-link>
     </div>
     <div class="actions">
