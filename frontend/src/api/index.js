@@ -59,5 +59,9 @@ export const getAdminTitleIssues = () => api.get('/api/admin/title-issues')
 export const fixSingleTitle = (single_number, single_name) => api.put('/api/admin/title', { single_number, single_name })
 export const getAdminUsers = () => api.get('/api/admin/users')
 export const deleteUserRecords = (id) => api.delete(`/api/admin/users/${id}/records`)
+export const getFullRecords = (params = {}) => api.get('/api/full/records', { params: { page_size: 50, ...params } })
+export const getFullOverallStats = () => api.get('/api/full/stats/overall')
+export const getFullStatsByMember = () => api.get('/api/full/stats/by-member')
+export const getFullStatsBySingle = () => api.get('/api/full/stats/by-single')
 
 export default api

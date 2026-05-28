@@ -20,7 +20,7 @@ func Init(cfg *config.Config) {
 	}
 	log.Println("Database connected")
 
-	if err := DB.AutoMigrate(&models.User{}, &models.Record{}); err != nil {
+	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}); err != nil {
 		log.Fatal("AutoMigrate failed:", err)
 	}
 

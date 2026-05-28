@@ -1,12 +1,16 @@
 const BACKEND_KEY = 'backendUrl'
 const TOKEN_KEY   = 'scrapeToken'
 
-const setupPage = document.getElementById('setupPage')
-const mainPage  = document.getElementById('mainPage')
-const statusEl  = document.getElementById('status')
-const resultEl  = document.getElementById('result')
-const syncBtn   = document.getElementById('syncBtn')
-const scrapeBtn = document.getElementById('scrapeBtn')
+const setupPage     = document.getElementById('setupPage')
+const mainPage      = document.getElementById('mainPage')
+const statusEl      = document.getElementById('status')
+const resultEl      = document.getElementById('result')
+const syncBtn       = document.getElementById('syncBtn')
+const scrapeBtn     = document.getElementById('scrapeBtn')
+const fullSyncBtn   = document.getElementById('fullSyncBtn')
+const fullScrapeBtn = document.getElementById('fullScrapeBtn')
+const fullStartEl   = document.getElementById('fullStart')
+const fullEndEl     = document.getElementById('fullEnd')
 
 // ─── 階段一：掃描申請列表，不進 detail page ──────────────────────────────────
 // 回傳 { orders: [{id, info}], hasMore } 或 { error }
@@ -361,6 +365,244 @@ scrapeBtn.addEventListener('click', async () => {
   } finally {
     scrapeBtn.disabled    = false
     scrapeBtn.textContent = '開始抓取'
+  }
+})
+
+// ─── 全握：注入 ticket.fortunemeets.app 的爬蟲函式 ─────────────────────────────
+// 此函式在目標頁面 context 執行，用 args 傳入 singleNum
+// 回傳 { records: [...], empty: bool, error?: string }
+async function scrapeFullPage(singleNum) {
+  function ordinalSuffix(n) {
+    const mod10 = n % 10, mod100 = n % 100
+    if (mod100 >= 11 && mod100 <= 13) return 'th'
+    if (mod10 === 1) return 'st'
+    if (mod10 === 2) return 'nd'
+    if (mod10 === 3) return 'rd'
+    return 'th'
+  }
+
+  function classifyVenue(venueName) {
+    if (!venueName) return ''
+    if (/幕張|東京|Makuhari/i.test(venueName)) return '東京'
+    return '地方'
+  }
+
+  // Wait for SPA content to render (up to 12s)
+  const startWait = Date.now()
+  while (Date.now() - startWait < 12000) {
+    const t = document.body.innerText || ''
+    if (t.includes('当選') || t.includes('落選') || t.includes('応募なし') || t.includes('履歴がありません')) break
+    await new Promise(r => setTimeout(r, 400))
+  }
+
+  const bodyText = document.body.innerText || ''
+  if (!bodyText.includes('当選') && !bodyText.includes('落選')) {
+    return { records: [], empty: true }
+  }
+
+  // ── ページ全体のテキストを行単位で解析 ──────────────────────────────────────
+  // 期待する行フォーマット（セルのテキストを連結したもの）:
+  //   実体: "当選　2026年5月2日（土）@京都パルスプラザ　第1部　五百城茉央　1枚（1口）"
+  //   線上: "当選　2026年5月17日（日）第1部　奥田いろは・柴田妍菜　2枚（2口）"
+  //
+  // 行から判別できる項目:
+  //   status       = 当選 / 落選
+  //   date         = YYYY年M月D日
+  //   @venue       = @〇〇 (実体のみ)
+  //   session      = 第N部
+  //   member_name  = 残りの非数値テキスト
+  //   count        = N口
+
+  const dateRe    = /(\d{4})年(\d{1,2})月(\d{1,2})日[（(][^)）]*[)）]/
+  const venueRe   = /@([^　\s第]+)/
+  const sessionRe = /(第\d+部)/
+  const countRe   = /(\d+)口/
+
+  const records = []
+  const sourceURL = window.location.href
+
+  // 全テーブル行を走査
+  document.querySelectorAll('tr').forEach(row => {
+    const text = row.innerText.replace(/\s+/g, ' ').trim()
+
+    const isWon  = text.includes('当選')
+    const isLost = text.includes('落選')
+    if (!isWon && !isLost) return
+
+    const dm = text.match(dateRe)
+    if (!dm) return
+
+    const year = parseInt(dm[1]), month = parseInt(dm[2]), day = parseInt(dm[3])
+    const eventDate = `${year}/${month}/${day}`
+
+    const vm      = text.match(venueRe)
+    const venue   = vm ? classifyVenue(vm[1]) : ''
+    const eventType = vm ? '実体' : '線上'
+
+    const sm      = text.match(sessionRe)
+    const session = sm ? sm[1] : ''
+
+    const cm    = text.match(countRe)
+    const count = cm ? parseInt(cm[1]) : 1
+
+    // 成員名: 去除已知欄位後剩餘的日文文字
+    let memberName = text
+      .replace(/当選|落選|抽選中/g, '')
+      .replace(dateRe, '')
+      .replace(venueRe, '')
+      .replace(sessionRe, '')
+      .replace(/\d+枚（\d+口）|\d+口/g, '')
+      .replace(/@[^\s　]*/g, '')
+      .replace(/[ぁ-ん]{0,0}/g, '') // no-op placeholder
+      .trim()
+      .replace(/\s+/g, ' ')
+
+    // 取最後一個實質詞塊（成員名通常在 session 之後）
+    const afterSession = text.split(session).pop() || ''
+    const memberMatch  = afterSession
+      .replace(/\d+枚（\d+口）|\d+口/g, '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (memberMatch) memberName = memberMatch
+
+    if (!memberName || memberName.length < 2) return
+
+    const suffix  = ordinalSuffix(singleNum)
+    const sName   = `${singleNum}${suffix}シングル`
+    const orderID = `full:${singleNum}:${eventType}:${venue}:${eventDate}:${session}:${memberName}`
+
+    records.push({
+      order_id:      orderID,
+      single_number: singleNum,
+      single_name:   sName,
+      event_type:    eventType,
+      venue,
+      event_date:    eventDate,
+      session,
+      member_name:   memberName,
+      applied_count: count,
+      won_count:     isWon ? count : 0,
+      source_url:    sourceURL,
+    })
+  })
+
+  return { records, empty: records.length === 0 }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+function setFullWaitingMode(on) {
+  fullSyncBtn.style.display   = on ? 'none'  : 'block'
+  fullScrapeBtn.style.display = on ? 'block' : 'none'
+}
+
+// 步驟一：開啟全握歷史頁
+fullSyncBtn.addEventListener('click', async () => {
+  await chrome.tabs.create({ url: 'https://ticket.fortunemeets.app/', active: true })
+  setFullWaitingMode(true)
+  showResult('info',
+    '已開啟 ticket.fortunemeets.app。\n\n' +
+    '① 如未登入，請先登入\n' +
+    '② 確認可看到歷史記錄後\n' +
+    '③ 點「開始全握抓取」'
+  )
+})
+
+// 步驟二：依序掃描各單曲歷史
+fullScrapeBtn.addEventListener('click', async () => {
+  const { [BACKEND_KEY]: backendUrl, [TOKEN_KEY]: scrapeToken } =
+    await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
+
+  fullScrapeBtn.disabled    = true
+  fullScrapeBtn.textContent = '抓取中...'
+
+  const startNum = parseInt(fullStartEl.value) || 1
+  const endNum   = parseInt(fullEndEl.value)   || 0  // 0 = auto
+
+  let totalNew     = 0
+  let totalSkipped = 0
+  let emptyStreak  = 0
+  const MAX_EMPTY  = 3  // 連續 N 個空頁就停止自動掃
+
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://ticket.fortunemeets.app/*' })
+    if (tabs.length === 0) {
+      showResult('error', '找不到 ticket.fortunemeets.app 分頁，請先點「全握同步」')
+      return
+    }
+    const tabId = tabs[0].id
+
+    for (let n = startNum; ; n++) {
+      if (endNum > 0 && n > endNum) break
+
+      // 計算序數後綴
+      const mod10 = n % 10, mod100 = n % 100
+      const suffix = (mod100 >= 11 && mod100 <= 13) ? 'th'
+        : mod10 === 1 ? 'st' : mod10 === 2 ? 'nd' : mod10 === 3 ? 'rd' : 'th'
+      const ordinal = `${n}${suffix}`
+
+      showResult('info', `正在掃描第 ${ordinal} 單...`)
+
+      // 導航到目標頁
+      await chrome.tabs.update(tabId, { url: `https://ticket.fortunemeets.app/nogizaka46/${ordinal}` })
+
+      // 等待頁面 load 完成
+      await new Promise(resolve => {
+        function onUpdated(id, info) {
+          if (id === tabId && info.status === 'complete') {
+            chrome.tabs.onUpdated.removeListener(onUpdated)
+            resolve()
+          }
+        }
+        chrome.tabs.onUpdated.addListener(onUpdated)
+        // 安全 timeout
+        setTimeout(() => { chrome.tabs.onUpdated.removeListener(onUpdated); resolve() }, 8000)
+      })
+
+      // 等一小段讓 SPA JS 先執行
+      await new Promise(r => setTimeout(r, 800))
+
+      const result = await chrome.scripting.executeScript({
+        target: { tabId },
+        func:   scrapeFullPage,
+        args:   [n],
+      })
+      const data = result[0]?.result
+      if (!data) { showResult('error', `第 ${ordinal} 單：無法取得結果`); break }
+
+      if (data.empty) {
+        emptyStreak++
+        if (endNum === 0 && emptyStreak >= MAX_EMPTY) break  // 自動模式：連 3 個空就停
+        continue
+      }
+      emptyStreak = 0
+
+      if (data.records.length > 0) {
+        const pushRes = await fetch(`${backendUrl}/scrape/full/push`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ scrape_token: scrapeToken, records: data.records }),
+        })
+        const pushJson = await pushRes.json()
+        if (!pushRes.ok) { showResult('error', pushJson.error || '上傳失敗'); break }
+        totalNew     += pushJson.new_records ?? 0
+        totalSkipped += pushJson.skipped     ?? 0
+      }
+    }
+
+    const parts = []
+    if (totalNew > 0)     parts.push(`新增 ${totalNew} 筆`)
+    if (totalSkipped > 0) parts.push(`跳過重複 ${totalSkipped} 筆`)
+    showResult(
+      parts.length ? 'success' : 'warning',
+      parts.length ? `全握同步完成！${parts.join('、')}` : '全握同步完成，無新資料'
+    )
+    setFullWaitingMode(false)
+  } catch (e) {
+    showResult('error', '發生錯誤：' + e.message)
+  } finally {
+    fullScrapeBtn.disabled    = false
+    fullScrapeBtn.textContent = '開始全握抓取'
   }
 })
 

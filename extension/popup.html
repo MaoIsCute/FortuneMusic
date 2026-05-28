@@ -20,8 +20,20 @@
   <!-- 主頁 -->
   <div id="mainPage" style="display:none">
     <div id="status" class="status"></div>
+
+    <div class="section-label">個握</div>
     <button id="syncBtn"   class="btn primary">同步</button>
     <button id="scrapeBtn" class="btn success" style="display:none">開始抓取</button>
+
+    <div class="section-label">全握</div>
+    <div class="full-range">
+      <input id="fullStart" type="number" class="range-input" placeholder="起始單 (留空=自動)" min="1" />
+      <span>～</span>
+      <input id="fullEnd"   type="number" class="range-input" placeholder="結束單 (留空=自動)" min="1" />
+    </div>
+    <button id="fullSyncBtn"   class="btn primary">全握同步</button>
+    <button id="fullScrapeBtn" class="btn success" style="display:none">開始全握抓取</button>
+
     <div id="result" class="result" style="display:none"></div>
   </div>
 

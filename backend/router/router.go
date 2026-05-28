@@ -36,6 +36,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	r.POST("/scrape/push", handlers.PushRecords)
 	r.POST("/scrape/check-orders", handlers.CheckOrders)
 	r.POST("/scrape/update-titles", handlers.UpdateTitles)
+	r.POST("/scrape/full/push", handlers.PushFullRecords)
 
 	api := r.Group("/api", middleware.AuthRequired(cfg))
 	{
@@ -54,6 +55,10 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/stats/by-session", handlers.GetStatsBySession)
 		api.GET("/stats/detail", handlers.GetDetailStats)
 		api.GET("/stats/order-sequence", handlers.GetOrderSequenceStats)
+		api.GET("/full/records", handlers.GetFullRecords)
+		api.GET("/full/stats/overall", handlers.GetFullOverallStats)
+		api.GET("/full/stats/by-member", handlers.GetFullStatsByMember)
+		api.GET("/full/stats/by-single", handlers.GetFullStatsBySingle)
 	}
 
 	return r

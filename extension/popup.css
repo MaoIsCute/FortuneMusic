@@ -42,6 +42,21 @@ input:focus { border-color: #7c3aed; }
 
 .hint { font-size: 12px; color: #888; }
 
+.section-label { font-size: 11px; font-weight: bold; color: #7c3aed; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 8px; }
+
+.full-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.range-input {
+  width: 0;
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.full-range span { color: #888; flex-shrink: 0; }
+
 .status {
   font-size: 12px;
   padding: 6px 10px;
