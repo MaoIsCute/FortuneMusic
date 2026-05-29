@@ -37,6 +37,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 	r.POST("/scrape/check-orders", handlers.CheckOrders)
 	r.POST("/scrape/update-titles", handlers.UpdateTitles)
 	r.POST("/scrape/full/push", handlers.PushFullRecords)
+	r.POST("/scrape/check-entries", handlers.CheckEntries)
+	r.POST("/scrape/purchases/push", handlers.PushPurchases)
+	r.POST("/scrape/log", handlers.PushScrapeLog)
 
 	api := r.Group("/api", middleware.AuthRequired(cfg))
 	{
@@ -44,8 +47,12 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/admin/users", handlers.GetAdminUsers)
 		api.DELETE("/admin/users/:id/records", handlers.DeleteUserRecords)
 		api.DELETE("/admin/users/:id/full-records", handlers.DeleteUserFullRecords)
+		api.DELETE("/admin/users/:id/purchases", handlers.DeleteUserPurchases)
 		api.GET("/admin/title-issues", handlers.GetTitleIssues)
 		api.PUT("/admin/title", handlers.FixSingleTitle)
+		api.GET("/admin/purchase-title-issues", handlers.GetPurchaseTitleIssues)
+		api.PUT("/admin/purchase-title", handlers.FixPurchaseTitle)
+		api.GET("/admin/scrape-logs", handlers.GetAdminScrapeLogs)
 		api.GET("/scrape-token", handlers.GetScrapeToken)
 		api.POST("/scrape", handlers.TriggerScrape)
 		api.GET("/records", handlers.GetRecords)
@@ -60,6 +67,11 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/full/stats/overall", handlers.GetFullOverallStats)
 		api.GET("/full/stats/by-member", handlers.GetFullStatsByMember)
 		api.GET("/full/stats/by-single", handlers.GetFullStatsBySingle)
+		api.GET("/purchases", handlers.GetPurchases)
+		api.GET("/purchases/tree", handlers.GetPurchaseTree)
+		api.GET("/purchases/stats/overall", handlers.GetPurchaseOverallStats)
+		api.GET("/purchases/stats/by-single", handlers.GetPurchaseStatsBySingle)
+		api.GET("/purchases/stats/by-member", handlers.GetPurchaseStatsByMember)
 	}
 
 	return r

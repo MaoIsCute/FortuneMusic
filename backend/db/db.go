@@ -20,7 +20,24 @@ func Init(cfg *config.Config) {
 	}
 	log.Println("Database connected")
 
-	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}); err != nil {
+	// 將 lottery_round 從字串（"第N次"）轉換為整數（冪等，只在欄位型別為 varchar 時執行）
+	for _, tbl := range []string{"records", "purchases"} {
+		DB.Exec(`
+			DO $$
+			BEGIN
+				IF EXISTS (
+					SELECT 1 FROM information_schema.columns
+					WHERE table_name = '` + tbl + `' AND column_name = 'lottery_round'
+					  AND data_type IN ('character varying','text')
+				) THEN
+					ALTER TABLE ` + tbl + ` ALTER COLUMN lottery_round TYPE integer
+					USING COALESCE((regexp_match(lottery_round, '(\d+)'))[1]::integer, 0);
+				END IF;
+			END $$;
+		`)
+	}
+
+	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.Purchase{}, &models.ScrapeLog{}); err != nil {
 		log.Fatal("AutoMigrate failed:", err)
 	}
 

@@ -353,10 +353,13 @@ func parseByText(doc *goquery.Document, sourceURL string, applyYear, applyMonth 
 }
 
 // parseSingleAndRound extracts single name and lottery round from event_name.
-func parseSingleAndRound(eventName string) (singleName, lotteryRound string) {
+func parseSingleAndRound(eventName string) (singleName string, lotteryRound int) {
 	if idx := strings.LastIndex(eventName, "/"); idx != -1 {
 		singleName = eventName[:idx]
-		lotteryRound = eventName[idx+1:]
+		roundStr := eventName[idx+1:]
+		if m := regexp.MustCompile(`(\d+)`).FindStringSubmatch(roundStr); len(m) > 1 {
+			lotteryRound, _ = strconv.Atoi(m[1])
+		}
 		return
 	}
 	singleRe := regexp.MustCompile(`\d+(?:st|nd|rd|th)シングル(?:「[^」]*」)?`)

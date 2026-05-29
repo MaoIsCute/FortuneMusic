@@ -263,10 +263,10 @@ const sortedMembers = computed(() =>
     })
 )
 
-// 單曲依最早 event_date 排序（時間軸升序），讓專輯與單曲按發生順序交錯
+// 單曲依最早 event_date 排序（新的在前），讓專輯與單曲按時間軸交錯
 function sortedSingles(singles) {
   return Object.entries(singles).sort(([, a], [, b]) =>
-    parseDate(a.minEventDate) - parseDate(b.minEventDate)
+    parseDate(b.minEventDate) - parseDate(a.minEventDate)
   )
 }
 
@@ -319,8 +319,7 @@ function isRoundExpanded(memberName, singleName, round) {
 }
 
 function formatRound(round) {
-  const n = parseInt(round.match(/\d+/)?.[0] ?? 0)
-  return `${n}抽`
+  return round ? `${round}抽` : ''
 }
 
 function calcRate(won, applied) {
@@ -420,9 +419,7 @@ const allRounds = computed(() => {
   for (const row of rows.value) {
     if (row.lottery_round) set.add(row.lottery_round)
   }
-  return [...set].sort((a, b) =>
-    parseInt(a.match(/\d+/)?.[0] ?? 0) - parseInt(b.match(/\d+/)?.[0] ?? 0)
-  )
+  return [...set].sort((a, b) => a - b)
 })
 
 const sessionChartOption = computed(() => {
@@ -519,9 +516,7 @@ const chartOption = computed(() => {
   for (const row of rows.value) {
     if (row.lottery_round) roundSet.add(row.lottery_round)
   }
-  const rounds = [...roundSet].sort((a, b) =>
-    parseInt(a.match(/\d+/)?.[0] ?? 0) - parseInt(b.match(/\d+/)?.[0] ?? 0)
-  )
+  const rounds = [...roundSet].sort((a, b) => a - b)
 
   if (rounds.length === 0) return { series: [] }
 

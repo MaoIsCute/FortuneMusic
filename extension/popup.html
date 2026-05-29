@@ -21,20 +21,56 @@
   <div id="mainPage" style="display:none">
     <div id="status" class="status"></div>
 
-    <div class="section-label">個握</div>
-    <button id="syncBtn"   class="btn primary">同步</button>
-    <button id="scrapeBtn" class="btn success" style="display:none">開始抓取</button>
+    <!-- 個握區塊 -->
+    <div class="section-block">
+      <div class="section-label">個握</div>
 
-    <div class="section-label">全握</div>
-    <div class="full-range">
-      <input id="fullStart" type="number" class="range-input" placeholder="起始單 (留空=自動)" min="1" />
-      <span>～</span>
-      <input id="fullEnd"   type="number" class="range-input" placeholder="結束單 (留空=自動)" min="1" />
+      <div class="sub-label">抽選記錄</div>
+      <button id="syncBtn"   class="btn primary">同步</button>
+      <button id="scrapeBtn" class="btn success" style="display:none">開始抓取</button>
+
+      <div class="sub-label">花費記錄</div>
+      <button id="purchaseSyncBtn"   class="btn primary">同步</button>
+      <button id="purchaseScrapeBtn" class="btn success" style="display:none">開始抓取</button>
     </div>
-    <button id="fullSyncBtn"   class="btn primary">全握同步</button>
-    <button id="fullScrapeBtn" class="btn success" style="display:none">開始全握抓取</button>
 
-    <div id="result" class="result" style="display:none"></div>
+    <div class="section-divider"></div>
+
+    <!-- 全握區塊 -->
+    <div class="section-block">
+      <div class="section-label">全握</div>
+      <div class="full-range">
+        <input id="fullStart" type="number" class="range-input" placeholder="起始單 (留空=自動)" min="1" />
+        <span>～</span>
+        <input id="fullEnd"   type="number" class="range-input" placeholder="結束單 (留空=自動)" min="1" />
+      </div>
+      <button id="fullSyncBtn"   class="btn primary">全握同步</button>
+      <button id="fullScrapeBtn" class="btn success" style="display:none">開始全握抓取</button>
+    </div>
+
+    <div class="section-divider"></div>
+
+    <!-- 進度區塊（抓取時才顯示） -->
+    <div id="progressSection" class="progress-section" style="display:none">
+      <div class="progress-header">
+        <span id="progressLabel">抓取中...</span>
+      </div>
+      <div class="progress-bar-row">
+        <div class="progress-bar-bg">
+          <div id="progressBarFill" class="progress-bar-fill"></div>
+        </div>
+        <span id="progressPct" class="progress-pct">-</span>
+      </div>
+      <div id="progressDetail" class="progress-detail"></div>
+    </div>
+
+    <!-- 操作記錄 -->
+    <div class="log-section">
+      <div class="log-header">📋 操作記錄</div>
+      <div id="logList" class="log-list">
+        <div class="log-empty">尚無記錄</div>
+      </div>
+    </div>
   </div>
 
   <script src="popup.js"></script>

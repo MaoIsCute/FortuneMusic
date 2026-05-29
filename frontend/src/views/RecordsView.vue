@@ -65,9 +65,7 @@ onMounted(async () => {
   memberList.value = sortMembersByGen((membersRes.data ?? []).map(m => m.member_name))
   const rows = detailRes.data ?? []
   singleList.value = [...new Set(rows.map(r => r.single_name).filter(Boolean))].sort()
-  roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) =>
-    parseInt(a.match(/\d+/)?.[0] ?? 0) - parseInt(b.match(/\d+/)?.[0] ?? 0)
-  )
+  roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) => a - b)
   await loadRecords()
 })
 
@@ -107,9 +105,7 @@ function formatSingle(name) {
 }
 
 function formatRound(round) {
-  if (!round) return ''
-  const n = parseInt(round.match(/\d+/)?.[0] ?? 0)
-  return `${n}抽`
+  return round ? `${round}抽` : ''
 }
 </script>
 

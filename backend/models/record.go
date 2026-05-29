@@ -9,7 +9,7 @@ type Record struct {
 	OrderID       string    `gorm:"index" json:"order_id"`
 	SingleNumber  int       `json:"single_number"`
 	SingleName    string    `json:"single_name"`
-	LotteryRound  string    `json:"lottery_round"`
+	LotteryRound  int       `json:"lottery_round"`
 	MemberName    string    `gorm:"not null" json:"member_name"`
 	EventDate     string    `gorm:"not null" json:"event_date"`
 	Session       string    `gorm:"not null" json:"session"`

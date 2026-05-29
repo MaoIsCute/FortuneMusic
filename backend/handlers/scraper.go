@@ -73,7 +73,7 @@ func PushRecords(c *gin.Context) {
 		MemberName   string `json:"member_name"`
 		SingleNumber int    `json:"single_number"`
 		SingleName   string `json:"single_name"`
-		LotteryRound string `json:"lottery_round"`
+		LotteryRound int    `json:"lottery_round"`
 		EventDate    string `json:"event_date"`
 		Session      string `json:"session"`
 		AppliedCount int    `json:"applied_count"`

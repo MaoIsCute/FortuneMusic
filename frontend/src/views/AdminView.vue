@@ -33,6 +33,7 @@
         <el-select v-model="del.recordType" style="width:100px">
           <el-option label="個握" value="records" />
           <el-option label="全握" value="full-records" />
+          <el-option label="購入" value="purchases" />
         </el-select>
 
         <el-select v-model="del.userId" placeholder="選擇使用者" style="width:200px" clearable>
@@ -62,10 +63,10 @@
       </div>
     </el-card>
 
-    <!-- タイトル未定 修正 -->
+    <!-- 個握 タイトル未定 修正 -->
     <el-card class="section">
       <template #header>
-        <span>タイトル未定 修正</span>
+        <span>個握 タイトル未定 修正</span>
         <el-button style="float:right" size="small" @click="loadIssues">重新整理</el-button>
       </template>
 
@@ -79,24 +80,66 @@
         <el-table-column label="筆數" width="70" prop="count" />
         <el-table-column label="修正標題">
           <template #default="{ row }">
-            <el-input
-              v-model="row._input"
-              size="small"
-              placeholder="輸入正確標題"
-              style="width: 320px"
-            />
+            <el-input v-model="row._input" size="small" placeholder="輸入正確標題" style="width: 320px" />
           </template>
         </el-table-column>
         <el-table-column label="" width="90">
           <template #default="{ row }">
-            <el-button
-              type="primary"
-              size="small"
-              :loading="row._loading"
-              @click="fix(row)"
-            >
-              修正
-            </el-button>
+            <el-button type="primary" size="small" :loading="row._loading" @click="fix(row)">修正</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <!-- 抓取紀錄 -->
+    <el-card class="section">
+      <template #header>
+        <span>抓取紀錄</span>
+        <el-button style="float:right" size="small" @click="loadScrapeLogs">重新整理</el-button>
+      </template>
+      <div v-if="scrapeLogs.length === 0" class="empty">尚無紀錄</div>
+      <el-table v-else :data="scrapeLogs" stripe>
+        <el-table-column label="使用者" width="140">
+          <template #default="{ row }">{{ row.user_name }}<br/><span class="sub-text">{{ row.user_email }}</span></template>
+        </el-table-column>
+        <el-table-column prop="type" label="類型" width="90" />
+        <el-table-column label="時間" width="140">
+          <template #default="{ row }">{{ row.created_at ? row.created_at.replace('T', ' ').slice(0, 16) : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="新增" width="65" align="right" prop="new_count" />
+        <el-table-column label="跳過" width="65" align="right" prop="skip_count" />
+        <el-table-column label="狀態">
+          <template #default="{ row }">
+            <span v-if="row.error" class="tag-error">❌ {{ row.error }}</span>
+            <span v-else class="tag-ok">✅ 成功</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <!-- 購入 タイトル未定 修正 -->
+    <el-card class="section">
+      <template #header>
+        <span>購入 タイトル未定 修正</span>
+        <el-button style="float:right" size="small" @click="loadPurchaseIssues">重新整理</el-button>
+      </template>
+
+      <div v-if="purchaseIssues.length === 0" class="empty">目前沒有 タイトル未定 的購入記錄</div>
+
+      <el-table v-else :data="purchaseIssues" stripe>
+        <el-table-column label="單曲號" width="80">
+          <template #default="{ row }">{{ row.single_number }}</template>
+        </el-table-column>
+        <el-table-column prop="current_name" label="目前標題" />
+        <el-table-column label="筆數" width="70" prop="count" />
+        <el-table-column label="修正標題">
+          <template #default="{ row }">
+            <el-input v-model="row._input" size="small" placeholder="輸入正確標題" style="width: 320px" />
+          </template>
+        </el-table-column>
+        <el-table-column label="" width="90">
+          <template #default="{ row }">
+            <el-button type="primary" size="small" :loading="row._loading" @click="fixPurchase(row)">修正</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -108,11 +151,13 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminTitleIssues, fixSingleTitle, getAdminUsers, deleteUserRecords, deleteUserFullRecords } from '../api/index'
+import { getAdminTitleIssues, fixSingleTitle, getAdminPurchaseTitleIssues, fixPurchaseTitle, getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, getAdminScrapeLogs } from '../api/index'
 
 const router = useRouter()
-const users  = ref([])
-const issues = ref([])
+const users          = ref([])
+const issues         = ref([])
+const purchaseIssues = ref([])
+const scrapeLogs     = ref([])
 
 const del = ref({
   mode:         '',
@@ -145,12 +190,23 @@ async function loadIssues() {
   } catch {}
 }
 
+async function loadPurchaseIssues() {
+  try {
+    const res = await getAdminPurchaseTitleIssues()
+    purchaseIssues.value = (res.data ?? []).map(item => ({
+      ...item,
+      _input:   item.suggested_name || '',
+      _loading: false,
+    }))
+  } catch {}
+}
+
 async function execDelete() {
   const user = users.value.find(u => u.id === del.value.userId)
   if (!user) return
 
   const modeLabel = { all: '全部資料', single: `第 ${del.value.singleNumber} 單`, date: `${del.value.dateRange?.[0]} ～ ${del.value.dateRange?.[1]}` }
-  const typeLabel = del.value.recordType === 'full-records' ? '全握' : '個握'
+  const typeLabel = { records: '個握', 'full-records': '全握', purchases: '購入' }[del.value.recordType] ?? '個握'
 
   try {
     await ElMessageBox.confirm(
@@ -170,7 +226,8 @@ async function execDelete() {
   }
 
   try {
-    const fn  = del.value.recordType === 'full-records' ? deleteUserFullRecords : deleteUserRecords
+    const fnMap = { records: deleteUserRecords, 'full-records': deleteUserFullRecords, purchases: deleteUserPurchases }
+    const fn  = fnMap[del.value.recordType] ?? deleteUserRecords
     const res = await fn(del.value.userId, params)
     ElMessage.success(`已刪除 ${res.data.deleted} 筆`)
     await loadUsers()
@@ -196,9 +253,35 @@ async function fix(row) {
   }
 }
 
+async function fixPurchase(row) {
+  if (!row._input.trim()) {
+    ElMessage.warning('請輸入正確標題')
+    return
+  }
+  row._loading = true
+  try {
+    const res = await fixPurchaseTitle(row.single_number, row._input.trim())
+    ElMessage.success(`已更新 ${res.data.updated} 筆`)
+    await loadPurchaseIssues()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '更新失敗')
+  } finally {
+    row._loading = false
+  }
+}
+
+async function loadScrapeLogs() {
+  try {
+    const res = await getAdminScrapeLogs()
+    scrapeLogs.value = res.data ?? []
+  } catch {}
+}
+
 onMounted(() => {
   loadUsers()
   loadIssues()
+  loadPurchaseIssues()
+  loadScrapeLogs()
 })
 </script>
 
@@ -206,4 +289,7 @@ onMounted(() => {
 .section { margin-bottom: 24px; }
 .empty { color: #999; text-align: center; padding: 32px 0; }
 .delete-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.sub-text { font-size: 11px; color: #999; }
+.tag-ok    { color: #059669; font-size: 13px; }
+.tag-error { color: #dc2626; font-size: 13px; }
 </style>
