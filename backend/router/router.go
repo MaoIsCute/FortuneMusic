@@ -26,6 +26,8 @@ func Setup(cfg *config.Config) *gin.Engine {
 		AllowCredentials: true,
 	}))
 
+	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
+
 	r.GET("/auth/google", handlers.GoogleLogin(cfg))
 	r.GET("/auth/google/callback", handlers.GoogleCallback(cfg))
 	r.POST("/auth/token", handlers.ExchangeToken)
