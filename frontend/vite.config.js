@@ -5,7 +5,7 @@ import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     vue(),
     vueDevTools(),
@@ -21,4 +21,9 @@ export default defineConfig({
       '/auth/google': 'http://localhost:8080',
     },
   },
-})
+  define: mode === 'production' ? {
+    'import.meta.env.VITE_API_URL': JSON.stringify(
+      process.env.VITE_API_URL || 'https://fortunemusictracker.onrender.com'
+    ),
+  } : {},
+}))
