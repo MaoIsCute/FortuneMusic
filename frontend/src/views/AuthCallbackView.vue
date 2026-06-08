@@ -3,7 +3,8 @@
     <div class="callback-card">
       <div v-if="error" class="error">
         <p>登入失敗：{{ error }}</p>
-        <a href="/">返回登入頁</a>
+        <p class="redirect-hint">{{ countdown }} 秒後自動返回登入頁⋯</p>
+        <a href="/">立即返回</a>
       </div>
       <div v-else>
         <p>登入中，請稍候⋯</p>
@@ -22,11 +23,25 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 const error = ref('')
+const countdown = ref(3)
+
+function redirectToLogin() {
+  let t = countdown.value
+  const timer = setInterval(() => {
+    t--
+    countdown.value = t
+    if (t <= 0) {
+      clearInterval(timer)
+      router.replace('/')
+    }
+  }, 1000)
+}
 
 onMounted(async () => {
   const code = route.query.code
   if (!code) {
     error.value = '未取得授權碼'
+    redirectToLogin()
     return
   }
   try {
@@ -35,6 +50,7 @@ onMounted(async () => {
     auth.setRefreshToken(res.data.refresh_token)
   } catch {
     error.value = '登入失敗，請重試'
+    redirectToLogin()
     return
   }
   try {
@@ -67,4 +83,5 @@ onMounted(async () => {
 }
 .error { color: #e53e3e; }
 .error a { color: var(--color-primary); }
+.redirect-hint { font-size: 13px; color: #999; margin: 8px 0; }
 </style>
