@@ -1,22 +1,27 @@
 <template>
   <div class="page">
-    <h1 class="page-title">擴充功能設定</h1>
+    <h1 class="page-title">同步工具設定</h1>
     <div class="setup-card">
-      <p class="desc">點擊下方按鈕，自動將你的 Token 與後端網址傳送至擴充功能，完成一鍵設定。</p>
+      <p class="desc">點擊下方按鈕，自動將你的帳號與同步工具連結，完成一鍵設定。</p>
       <el-button type="primary" size="large" :loading="loading" @click="authorize">
-        授權擴充功能
+        連結同步工具
       </el-button>
       <p v-if="statusMsg" :class="['status-msg', statusType]">{{ statusMsg }}</p>
+      <el-button v-if="statusType === 'success'" type="success" size="large" @click="router.push('/dashboard')">
+        完成，前往主頁 →
+      </el-button>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { getScrapeToken } from '../api/index'
 
 const EXTENSION_ID = 'gdclpkfeiocedicokoenhconeoocigeh'
 
+const router = useRouter()
 const loading   = ref(false)
 const statusMsg = ref('')
 const statusType = ref('')
@@ -45,12 +50,12 @@ async function authorize() {
       )
     })
 
-    statusMsg.value  = '授權成功！擴充功能已設定完成。'
+    statusMsg.value  = '連結成功！同步工具已設定完成。'
     statusType.value = 'success'
   } catch (e) {
     const msg = e.message || ''
     statusMsg.value = msg.includes('Could not establish connection') || msg.includes('Extension')
-      ? '找不到擴充功能，請確認已安裝並啟用。'
+      ? '找不到同步工具，請確認已安裝並啟用。'
       : msg
     statusType.value = 'error'
   } finally {

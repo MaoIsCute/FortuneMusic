@@ -6,7 +6,7 @@
       <router-link to="/records">個握紀錄</router-link>
       <router-link to="/full">全握</router-link>
       <router-link to="/spending">花費</router-link>
-      <router-link to="/scrape">擴充功能</router-link>
+      <router-link to="/scrape">同步工具</router-link>
       <router-link v-if="isAdmin" to="/admin">管理</router-link>
     </div>
     <div class="actions">
