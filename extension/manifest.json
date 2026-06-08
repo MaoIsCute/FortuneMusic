@@ -7,7 +7,8 @@
   "externally_connectable": {
     "matches": [
       "http://localhost:5173/*",
-      "https://fortune-music-cehnyf0sw-sams-projects-f6308fd5.vercel.app/*"
+      "https://fortune-music.vercel.app/*",
+      "https://fortunemusic.vercel.app/*"
     ]
   },
   "permissions": [
