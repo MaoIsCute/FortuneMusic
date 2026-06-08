@@ -6,7 +6,8 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtpCWOJC2O8Qv1fJTEilY6w0rIkZT3enq15nGuaCabfHiElRDC69v9vZZjhUyG8POJs63OleJEKV0nfr2IlTiO9LhSD9TA2ix4JNgdRhKCMTHrgL14+7nVlFHVYwj7XqBz/FkZP7dQE36jNe7gklVFXwFl3+/HyhjM/EKSsE4vbSVDeWTXf0vRuszNchx88K2vCV9zZivP+aL18f/YR9U83jLjBeCgc/mE+nOSNYFYmdVZErjKmRi7JiMkAH0ALq8gHt6FCkcxRdDsYy05jeQRSTpEWKsd6aKMZfYIlWshpDxkcxQoL9snV5Lb0htyKdzvAukMAQmQlgURpHWNyJQvQIDAQAB",
   "externally_connectable": {
     "matches": [
-      "http://localhost:5173/*"
+      "http://localhost:5173/*",
+      "https://fortune-music-cehnyf0sw-sams-projects-f6308fd5.vercel.app/*"
     ]
   },
   "permissions": [
@@ -18,7 +19,8 @@
   "host_permissions": [
     "https://fortunemusic.jp/*",
     "https://ticket.fortunemeets.app/*",
-    "http://localhost:8080/*"
+    "http://localhost:8080/*",
+    "https://fortunemusictracker.onrender.com/*"
   ],
   "background": {
     "service_worker": "background.js"

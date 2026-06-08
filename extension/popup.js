@@ -293,7 +293,7 @@ function setWaitingMode(on) {
 }
 
 document.getElementById('openAppBtn').addEventListener('click', () => {
-  chrome.tabs.create({ url: 'http://localhost:5173/scrape' })
+  chrome.tabs.create({ url: 'https://fortune-music-cehnyf0sw-sams-projects-f6308fd5.vercel.app/scrape' })
 })
 
 document.getElementById('settingsBtn').addEventListener('click', showSetup)
