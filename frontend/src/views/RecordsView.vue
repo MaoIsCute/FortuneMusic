@@ -1,7 +1,9 @@
 <template>
   <div class="page">
     <h1 class="page-title">📋 抽選紀錄</h1>
-    <EmptyState v-if="isEmpty" />
+    <template v-if="loaded">
+    <ErrorState v-if="loadFailed" />
+    <EmptyState v-else-if="isEmpty" />
     <template v-else>
     <div class="filters">
       <el-select v-model="filterMember" placeholder="選擇成員" clearable @change="loadRecords">
@@ -42,6 +44,7 @@
       />
     </div>
     </template>
+    </template>
   </div>
 </template>
 
@@ -49,7 +52,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { getRecords, getStatsByMember, getDetailStats } from '../api/index'
 import { sortMembersByGen } from '../utils/members'
+import { useDataStore } from '../stores/data'
 import EmptyState from '../components/EmptyState.vue'
+import ErrorState from '../components/ErrorState.vue'
 
 const records  = ref([])
 const total    = ref(0)
@@ -64,19 +69,30 @@ const memberList = ref([])
 const singleList = ref([])
 const roundList  = ref([])
 const loaded     = ref(false)
+const loadFailed = ref(false)
+const dataStore  = useDataStore()
 
 const isEmpty = computed(() =>
   loaded.value && total.value === 0 && !filterMember.value && !filterSingle.value && !filterRound.value
 )
 
 onMounted(async () => {
-  const [membersRes, detailRes] = await Promise.all([getStatsByMember(), getDetailStats()])
-  memberList.value = sortMembersByGen((membersRes.data ?? []).map(m => m.member_name))
-  const rows = detailRes.data ?? []
-  singleList.value = [...new Set(rows.map(r => r.single_name).filter(Boolean))].sort()
-  roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) => a - b)
-  await loadRecords()
-  loaded.value = true
+  if (dataStore.hasData === false) {
+    loaded.value = true
+    return
+  }
+  try {
+    const [membersRes, detailRes] = await Promise.all([getStatsByMember(), getDetailStats()])
+    memberList.value = sortMembersByGen((membersRes.data ?? []).map(m => m.member_name))
+    const rows = detailRes.data ?? []
+    singleList.value = [...new Set(rows.map(r => r.single_name).filter(Boolean))].sort()
+    roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) => a - b)
+    await loadRecords()
+  } catch {
+    loadFailed.value = true
+  } finally {
+    loaded.value = true
+  }
 })
 
 async function loadRecords() {

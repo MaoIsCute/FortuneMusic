@@ -2,7 +2,9 @@
   <div class="page">
     <h1 class="page-title">💰 花費統計</h1>
 
-    <EmptyState v-if="isEmpty" />
+    <template v-if="loaded">
+    <ErrorState v-if="loadFailed" />
+    <EmptyState v-else-if="isEmpty" />
     <template v-else>
     <!-- 總覽 -->
     <div class="stats-row">
@@ -69,18 +71,23 @@
       </el-table>
     </el-card>
     </template>
+    </template>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { getPurchaseOverallStats, getPurchaseTree, getPurchaseStatsByMember } from '../api/index'
+import { useDataStore } from '../stores/data'
 import EmptyState from '../components/EmptyState.vue'
+import ErrorState from '../components/ErrorState.vue'
 
-const overall  = ref({})
-const tree     = ref([])
-const byMember = ref([])
-const loaded   = ref(false)
+const dataStore  = useDataStore()
+const overall    = ref({})
+const tree       = ref([])
+const byMember   = ref([])
+const loaded     = ref(false)
+const loadFailed = ref(false)
 
 const isEmpty = computed(() => loaded.value && tree.value.length === 0)
 
@@ -89,15 +96,24 @@ function formatRound(round) {
 }
 
 async function load() {
-  const [o, t, mb] = await Promise.all([
-    getPurchaseOverallStats(),
-    getPurchaseTree(),
-    getPurchaseStatsByMember(),
-  ])
-  overall.value  = o.data
-  tree.value     = t.data ?? []
-  byMember.value = mb.data ?? []
-  loaded.value   = true
+  if (dataStore.hasData === false) {
+    loaded.value = true
+    return
+  }
+  try {
+    const [o, t, mb] = await Promise.all([
+      getPurchaseOverallStats(),
+      getPurchaseTree(),
+      getPurchaseStatsByMember(),
+    ])
+    overall.value  = o.data
+    tree.value     = t.data ?? []
+    byMember.value = mb.data ?? []
+  } catch {
+    loadFailed.value = true
+  } finally {
+    loaded.value = true
+  }
 }
 
 onMounted(load)

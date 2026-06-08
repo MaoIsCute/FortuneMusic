@@ -17,7 +17,24 @@
 import { onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { exchangeToken, getMe } from '../api/index'
+import { exchangeToken, getMe, getScrapeToken } from '../api/index'
+
+const EXTENSION_ID = 'gdclpkfeiocedicokoenhconeoocigeh'
+
+async function tryAutoLink() {
+  if (!window.chrome?.runtime?.sendMessage) return
+  try {
+    const res = await getScrapeToken()
+    const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+    await new Promise((resolve) => {
+      chrome.runtime.sendMessage(
+        EXTENSION_ID,
+        { type: 'FORTUNE_SETUP', token: res.data.scrape_token, backendUrl },
+        () => { chrome.runtime.lastError; resolve() }
+      )
+    })
+  } catch {}
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -53,12 +70,10 @@ onMounted(async () => {
     redirectToLogin()
     return
   }
-  try {
-    const res = await getMe()
-    auth.setUser(res.data)
-  } catch {
-    // token 有效但取不到 user，不影響登入
-  }
+  await Promise.all([
+    getMe().then(res => auth.setUser(res.data)).catch(() => {}),
+    tryAutoLink(),
+  ])
   const redirect = localStorage.getItem('redirectAfterLogin') || '/dashboard'
   localStorage.removeItem('redirectAfterLogin')
   router.replace(redirect)

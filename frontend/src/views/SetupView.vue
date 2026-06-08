@@ -33,7 +33,17 @@
           <div class="step-num">2</div>
           <div class="step-text">
             <div class="step-title">連結你的帳號</div>
-            <div class="step-sub">點下方按鈕，讓同步工具認識你的帳號</div>
+            <div class="step-sub">安裝完成後，點下方按鈕讓同步工具認識你的帳號</div>
+            <div class="step-action">
+              <el-button
+                v-if="linkStatus !== 'success'"
+                type="primary"
+                :loading="linking"
+                @click="linkExtension"
+              >連結帳號</el-button>
+              <span v-if="linkStatus === 'success'" class="link-success">✅ 連結成功！</span>
+              <span v-if="linkStatus === 'error'" class="link-error">{{ linkError }}</span>
+            </div>
           </div>
         </div>
         <div class="step">
@@ -45,22 +55,66 @@
         </div>
       </div>
 
-      <router-link to="/scrape">
-        <el-button type="primary" size="large" class="goto-btn">
-          開始設定 →
-        </el-button>
-      </router-link>
+      <el-button
+        v-if="linkStatus === 'success'"
+        type="primary"
+        size="large"
+        class="goto-btn"
+        @click="router.replace('/dashboard')"
+      >前往主頁 →</el-button>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
-const copied = ref(false)
+import { useRouter } from 'vue-router'
+import { getScrapeToken } from '../api/index'
+
+const router = useRouter()
+const EXTENSION_ID = 'gdclpkfeiocedicokoenhconeoocigeh'
+
+const copied    = ref(false)
+const linking   = ref(false)
+const linkStatus = ref('')
+const linkError  = ref('')
+
 function copy() {
   navigator.clipboard.writeText('chrome://extensions/')
   copied.value = true
   setTimeout(() => { copied.value = false }, 2000)
+}
+
+async function linkExtension() {
+  linking.value   = true
+  linkStatus.value = ''
+  linkError.value  = ''
+  try {
+    const res = await getScrapeToken()
+    const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+    await new Promise((resolve, reject) => {
+      if (!window.chrome?.runtime?.sendMessage) { reject(new Error('not_found')); return }
+      chrome.runtime.sendMessage(
+        EXTENSION_ID,
+        { type: 'FORTUNE_SETUP', token: res.data.scrape_token, backendUrl },
+        (response) => {
+          const err = chrome.runtime.lastError
+          if (err) reject(new Error(err.message))
+          else if (response?.success) resolve()
+          else reject(new Error('failed'))
+        }
+      )
+    })
+    linkStatus.value = 'success'
+  } catch (e) {
+    linkStatus.value = 'error'
+    const msg = e.message || ''
+    linkError.value = msg.includes('Could not establish connection') || msg === 'not_found'
+      ? '找不到同步工具，請確認已依步驟 1 安裝並啟用。'
+      : '連結失敗，請重試。'
+  } finally {
+    linking.value = false
+  }
 }
 </script>
 
@@ -183,6 +237,9 @@ html.dark .step-title   { color: #d4d8e3; }
 html.dark .step-sub     { color: #6b7490; }
 html.dark .install-steps { color: #9aa3b5; }
 html.dark .install-steps code { background: #2e3450; color: #d4d8e3; }
+.step-action { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.link-success { font-size: 14px; color: #52c41a; font-weight: 600; }
+.link-error   { font-size: 13px; color: #ff4d4f; }
 .copy-row { display: inline-flex; align-items: center; gap: 6px; }
 .copy-btn {
   padding: 1px 8px;

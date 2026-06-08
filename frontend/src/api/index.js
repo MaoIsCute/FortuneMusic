@@ -13,10 +13,16 @@ api.interceptors.request.use((config) => {
 })
 
 let isRefreshing = false
+let networkErrorShown = false
 
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
+    if (!error.response && !networkErrorShown) {
+      networkErrorShown = true
+      ElMessage({ type: 'error', message: '無法連線到伺服器，請稍後再試', duration: 4000,
+        onClose: () => { networkErrorShown = false } })
+    }
     const isAuthEndpoint = error.config?.url?.includes('/auth/')
     if (error.response?.status === 401 && !error.config._retry && !isAuthEndpoint) {
       const rt = localStorage.getItem('refreshToken')

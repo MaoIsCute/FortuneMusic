@@ -2,11 +2,14 @@
   <div class="page">
     <h1 class="page-title">📊 總覽</h1>
 
+    <template v-if="pageLoaded">
+    <!-- 錯誤提示 -->
+    <ErrorState v-if="loadFailed" />
     <!-- 尚無資料提示 -->
-    <EmptyState v-if="!hasData" />
+    <EmptyState v-else-if="!hasData" />
 
     <!-- 全體統計 -->
-    <div v-if="hasData" class="stats-grid">
+    <div v-if="hasData && !loadFailed" class="stats-grid">
       <div class="stat-card">
         <div class="stat-label">總應募數</div>
         <div class="stat-value">{{ overall.total_applied }}</div>
@@ -21,7 +24,7 @@
       </div>
     </div>
 
-    <template v-if="hasData">
+    <template v-if="hasData && !loadFailed">
     <!-- 應募次數別中選率折線圖 -->
     <div v-if="chartOption.series.length" class="chart-card">
       <div class="chart-header">
@@ -170,6 +173,7 @@
       </div>
     </div>
     </template>
+    </template>
   </div>
 </template>
 
@@ -178,8 +182,10 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getStats, getDetailStats, getOrderSequenceStats } from '../api/index'
 import { useThemeStore } from '../stores/theme'
+import { useDataStore } from '../stores/data'
 import { detectExtension } from '../utils/extension'
 import EmptyState from '../components/EmptyState.vue'
+import ErrorState from '../components/ErrorState.vue'
 import { MEMBERS, sortMembersByGen } from '../utils/members'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -191,34 +197,44 @@ use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, Canv
 
 const router = useRouter()
 const themeStore = useThemeStore()
+const dataStore  = useDataStore()
 const ct = computed(() => themeStore.isDark
   ? { text: '#d4d8e3', sub: '#9aa3b5', line: '#3a3f5c' }
   : { text: '#555',    sub: '#888',    line: '#e8e8e8' }
 )
 
-const overall  = ref({ total_applied: 0, total_won: 0, win_rate: 0 })
-const rows     = ref([])
-const hasData  = ref(true)
+const overall     = ref({ total_applied: 0, total_won: 0, win_rate: 0 })
+const rows        = ref([])
+const hasData     = ref(false)
+const pageLoaded  = ref(false)
+const loadFailed  = ref(false)
 const expandedMembers = ref({})
-const expandedSingles = ref({}) // key: "memberName::singleName"
-const expandedRounds  = ref({}) // key: "memberName::singleName::round"
+const expandedSingles = ref({})
+const expandedRounds  = ref({})
 
 onMounted(async () => {
   try {
+    if (dataStore.hasData === false) {
+      const installed = await detectExtension()
+      if (!installed) { router.replace('/setup'); return }
+      pageLoaded.value = true
+      return
+    }
     const [s, d] = await Promise.all([getStats(), getDetailStats()])
     overall.value = s.data
     rows.value    = d.data ?? []
     if (overall.value.total_applied === 0) {
+      dataStore.hasData = false
       const installed = await detectExtension()
-      if (!installed) {
-        router.replace('/setup')
-      } else {
-        hasData.value = false
-      }
+      if (!installed) { router.replace('/setup'); return }
+    } else {
+      dataStore.hasData = true
+      hasData.value = true
     }
   } catch {
-    // 保持預設 0 值
+    loadFailed.value = true
   }
+  pageLoaded.value = true
 })
 
 // flat rows → member → singleKey → round → rows

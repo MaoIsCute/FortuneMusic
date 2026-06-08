@@ -2,7 +2,7 @@
 
 ## 專案概述
 統計 **Fortune Music** 網站上乃木坂46見面會抽選結果的工具。
-使用者登入後可觸發爬蟲抓取自己的抽選紀錄，並在統計畫面分析中選機率。
+使用者安裝 Chrome 擴充功能後，可一鍵同步自己的抽選紀錄，並在統計畫面分析中選機率。
 
 ---
 
@@ -12,10 +12,11 @@
 |------|------|
 | 前端 | Vue 3 + Vue Router + Pinia + Element Plus |
 | 後端 | Go + Gin + GORM |
-| 資料庫 | PostgreSQL（Supabase 托管，免費方案） |
-| 登入 | Google OAuth 2.0 + JWT |
-| 部署 | Fly.io（免費方案） |
-| 備份 | Supabase 內建每日自動備份 |
+| 資料庫 | PostgreSQL（Supabase 托管，Session pooler 連線） |
+| 登入 | Google OAuth 2.0 + JWT（15min）+ Refresh Token（30天） |
+| 擴充功能 | Chrome Extension Manifest V3 |
+| 前端部署 | Vercel |
+| 後端部署 | Render（免費方案 + UptimeRobot 每5分鐘 keep-alive） |
 
 ---
 
@@ -26,73 +27,69 @@ D:\Project\fortunemusic\
 ├── backend\
 │   ├── main.go
 │   ├── .env
-│   ├── config/
-│   │   └── config.go           # 環境變數設定
-│   ├── db/
-│   │   └── db.go               # PostgreSQL 連線
-│   ├── models/
-│   │   ├── user.go             # User 資料表
-│   │   └── record.go           # Record 資料表
+│   ├── config/config.go          # 環境變數設定
+│   ├── db/db.go                  # PostgreSQL 連線
+│   ├── models/                   # User, Record, Purchase... 資料表
 │   ├── handlers/
-│   │   ├── auth.go             # Google OAuth 登入
-│   │   ├── scraper.go          # 爬蟲觸發 API
-│   │   └── stats.go            # 統計 API
-│   ├── scraper/
-│   │   └── scraper.go          # goquery 爬蟲邏輯
-│   ├── middleware/
-│   │   └── auth.go             # JWT 驗證 middleware
-│   └── router/
-│       └── router.go           # 路由設定
-└── frontend\
-    ├── .env
-    └── src/
-        ├── main.js
-        ├── App.vue
-        ├── api/
-        │   └── index.js        # Axios API 呼叫
-        ├── router/
-        │   └── index.js        # Vue Router 路由設定
-        ├── stores/
-        │   ├── auth.js         # 登入狀態管理
-        │   └── theme.js        # 主題/應援色管理
-        ├── styles/
-        │   └── theme.js        # 成員應援色設定
-        ├── components/
-        │   └── NavBar.vue      # 導覽列
-        └── views/
-            ├── LoginView.vue   # 登入頁
-            ├── DashboardView.vue # 統計總覽頁
-            ├── MemberView.vue  # 成員統計頁
-            ├── RecordsView.vue # 抽選紀錄列表頁
-            └── ScrapeView.vue  # 爬蟲觸發頁
+│   │   ├── auth.go               # Google OAuth + JWT
+│   │   ├── scrape.go             # 擴充功能爬蟲接收 API
+│   │   ├── stats.go              # 個握統計 API
+│   │   ├── full.go               # 全握統計 API
+│   │   └── purchase.go           # 花費統計 API
+│   ├── middleware/auth.go        # JWT 驗證
+│   └── router/router.go         # 路由設定
+├── frontend\
+│   ├── vercel.json               # SPA routing rewrite
+│   └── src/
+│       ├── api/index.js          # Axios + 自動 refresh token
+│       ├── router/index.js       # Vue Router（含 data guard）
+│       ├── stores/
+│       │   ├── auth.js           # 登入狀態
+│       │   ├── theme.js          # 成員應援色主題
+│       │   └── data.js           # hasData 全域快取
+│       ├── components/
+│       │   ├── NavBar.vue
+│       │   ├── EmptyState.vue    # 無資料提示卡
+│       │   └── ErrorState.vue    # 連線失敗提示卡
+│       └── views/
+│           ├── LoginView.vue
+│           ├── AuthCallbackView.vue  # OAuth 回調（含自動連結擴充）
+│           ├── SetupView.vue     # 新手安裝引導頁
+│           ├── DashboardView.vue # 統計總覽 + 圖表
+│           ├── RecordsView.vue   # 抽選紀錄列表
+│           ├── SpendingView.vue  # 花費統計
+│           ├── ScrapeView.vue    # 同步工具手動設定
+│           └── AdminView.vue     # 管理員工具
+└── extension\
+    ├── manifest.json
+    ├── background.js             # PING + FORTUNE_SETUP 訊息接收
+    ├── popup.html / popup.css
+    └── popup.js                  # 同步邏輯（個握、花費）
 ```
 
 ---
 
-## 資料庫設計
+## 資料流
 
-### users 資料表
-| 欄位 | 型別 | 說明 |
-|------|------|------|
-| id | INTEGER | 主鍵，自動遞增 |
-| google_id | TEXT | Google 帳號 ID（唯一） |
-| email | TEXT | Email（唯一） |
-| name | TEXT | 顯示名稱 |
-| created_at | DATETIME | 建立時間 |
+```
+使用者 → Chrome 擴充功能（popup）
+  → 開啟 fortunemusic.jp（帶 session cookie）
+  → chrome.scripting.executeScript 注入爬蟲
+  → 爬取申請列表 + 訂單明細
+  → POST /scrape/push（帶 scrape_token）
+  → 後端存入 PostgreSQL
+  → 前端 /dashboard 顯示統計
+```
 
-### records 資料表
-| 欄位 | 型別 | 說明 |
-|------|------|------|
-| id | INTEGER | 主鍵，自動遞增 |
-| user_id | INTEGER | 關聯 users.id |
-| event_name | TEXT | 活動名稱 |
-| member_name | TEXT | 成員名稱 |
-| event_date | TEXT | 活動日期（例：4/19） |
-| session | TEXT | 部數（例：第2部） |
-| applied_count | INTEGER | 應募數 |
-| won_count | INTEGER | 中選數 |
-| source_url | TEXT | 來源網址 |
-| scraped_at | DATETIME | 爬取時間 |
+---
+
+## 同步工具設定流程
+
+1. 使用者以 Google 帳號登入網站
+2. `AuthCallbackView` 登入成功後自動嘗試連結擴充功能（靜默）
+3. 若擴充功能未安裝 → 導向 `/setup` 顯示安裝步驟
+4. 安裝完成後在 `/setup` 點「連結帳號」按鈕完成設定
+5. 之後點擴充功能圖示 → 點「同步」即可
 
 ---
 
@@ -102,64 +99,65 @@ D:\Project\fortunemusic\
 | 方法 | 路徑 | 說明 |
 |------|------|------|
 | GET | /auth/google | 導向 Google OAuth |
-| GET | /auth/google/callback | Google OAuth callback |
+| GET | /auth/google/callback | OAuth callback，回傳 JWT |
+| POST | /auth/refresh | 刷新 access token |
 
-### 爬蟲
+### 使用者
 | 方法 | 路徑 | 說明 |
 |------|------|------|
-| POST | /api/scrape | 手動觸發爬蟲（需帶 Cookie） |
+| GET | /api/me | 取得目前使用者資訊 |
+| GET | /api/scrape-token | 取得擴充功能用的 scrape_token |
 
-### 統計
+### 個握統計
 | 方法 | 路徑 | 說明 |
 |------|------|------|
-| GET | /api/stats/overall | 總中選率 |
-| GET | /api/stats/by-date | 每日中選率 |
-| GET | /api/stats/by-session | 每部中選率 |
-| GET | /api/stats/by-member | 每個成員統計 |
-| GET | /api/records | 所有抽選紀錄 |
+| GET | /api/stats/overall | 整體中選率 |
+| GET | /api/stats/by-member | 依成員統計 |
+| GET | /api/stats/detail | 詳細資料（成員×單曲×次數×部數） |
+| GET | /api/stats/order-sequence | 依訂單序號統計 |
+| GET | /api/records | 抽選紀錄列表（分頁） |
+
+### 花費統計
+| 方法 | 路徑 | 說明 |
+|------|------|------|
+| GET | /api/purchases/stats/overall | 花費總計 |
+| GET | /api/purchases/tree | 依單曲樹狀統計 |
+| GET | /api/purchases/stats/by-member | 依成員花費 |
+
+### 爬蟲接收（擴充功能呼叫）
+| 方法 | 路徑 | 說明 |
+|------|------|------|
+| POST | /scrape/check-orders | 確認哪些訂單 ID 是新的 |
+| POST | /scrape/push | 上傳個握紀錄 |
+| POST | /scrape/update-titles | 更新舊訂單的單曲名稱 |
+| POST | /scrape/check-entries | 確認哪些購入記錄是新的 |
+| POST | /scrape/purchases/push | 上傳花費紀錄 |
+| POST | /scrape/log | 記錄同步日誌 |
 
 ---
 
-## 爬蟲邏輯
-
-**目標網站：** `fortunemusic.jp`（需登入）
-
-**爬取流程：**
-1. 使用者提供 Cookie → 後端帶 Cookie 請求
-2. 爬取 `fortunemusic.jp/mypage/apply_list/` → 取得所有訂單連結
-3. 逐一爬取 `fortunemusic.jp/mypage/apply_detail/{ID}/`
-4. 解析商品名稱，提取成員名、日期、部數
-5. 存入資料庫（已存在的 ID 跳過，避免重複）
-
-**商品名稱格式：**
-```
-{成員名}【{月/日} {第N部}】{活動名稱}
-```
-範例：`奥田いろは【4/19 第2部】乃木坂46 41stシングル...`
-
----
-
-## 前端頁面
+## 前端路由
 
 | 路徑 | 頁面 | 說明 |
 |------|------|------|
 | / | LoginView | Google 登入頁 |
-| /dashboard | DashboardView | 統計總覽、成員列表 |
-| /member/:name | MemberView | 成員詳細統計（日期別／部數別／紀錄） |
-| /records | RecordsView | 所有紀錄列表，可依成員篩選 |
-| /scrape | ScrapeView | 觸發爬蟲，Cookie 輸入 |
+| /auth/callback | AuthCallbackView | OAuth 回調 |
+| /setup | SetupView | 新手安裝引導（擴充功能未安裝時導向） |
+| /dashboard | DashboardView | 統計總覽、圖表、成員手風琴 |
+| /records | RecordsView | 抽選紀錄列表（可篩選） |
+| /spending | SpendingView | 花費統計 |
+| /scrape | ScrapeView | 同步工具手動設定 |
+| /member/:name | MemberView | 成員詳細統計 |
+| /admin | AdminView | 管理員（title 修正、使用者管理） |
 
 ---
 
-## 主題系統
+## 空狀態邏輯
 
-選擇成員時，全站配色跟著切換為該成員的應援色漸層。
-支援深色／淺色模式切換。
-
-**目前設定的成員應援色：**
-| 成員 | 主色 | 副色 |
-|------|------|------|
-| 五百城茉央 | #40E0D0（ターコイズ） | #1E90FF（青） |
+- **無資料 + 無擴充功能** → 導向 `/setup`
+- **無資料 + 有擴充功能** → 頁面內顯示 `EmptyState` 提示卡
+- **連線失敗** → 顯示 `ErrorState` 提示卡 + 重新整理按鈕
+- Router guard 進入 Dashboard/Records/Spending 前先查 `dataStore.hasData`，避免頁面閃爍
 
 ---
 
@@ -167,29 +165,25 @@ D:\Project\fortunemusic\
 
 ### backend/.env
 ```
-DATABASE_URL=postgresql://postgres:PASSWORD@db.SUPABASE_ID.supabase.co:5432/postgres
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
-JWT_SECRET=your_random_secret_string
-APP_URL=http://localhost:8080
+DATABASE_URL=postgresql://postgres.[PROJECT]:[PASSWORD]@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+JWT_SECRET=
+REFRESH_SECRET=
+APP_URL=https://fortunemusictracker.onrender.com
+FRONTEND_URL=https://fortune-music-cehnyf0sw-sams-projects-f6308fd5.vercel.app
 ```
 
 ### frontend/.env
 ```
-VITE_API_URL=http://localhost:8080
+VITE_API_URL=https://fortunemusictracker.onrender.com
 ```
 
 ---
 
-## 待完成項目
+## 部署注意事項
 
-- [ ] 後端 Google OAuth 完整實作（handlers/auth.go）
-- [ ] 後端 JWT middleware 實作（middleware/auth.go）
-- [ ] 後端爬蟲邏輯實作（scraper/scraper.go）
-- [ ] 後端統計 API 實作（handlers/stats.go）
-- [ ] 後端路由設定（router/router.go）
-- [ ] Google Cloud Console 建立 OAuth 憑證
-- [ ] Supabase 建立專案取得 DATABASE_URL
-- [ ] 前後端串接測試
-- [ ] Fly.io 部署設定
-- [ ] 新增更多成員應援色
+- **Render 免費方案** 閒置 15 分鐘後 sleep → 用 UptimeRobot 每 5 分鐘打 `/health` 保活
+- **Supabase** 使用 Session pooler URL（`pooler.supabase.com:5432`）解決 Render IPv6 問題
+- **擴充功能** 採 Google Drive zip 方式分發，不上架 Chrome Web Store
+- **CORS** 後端 `FRONTEND_URL` 環境變數需與 Vercel 部署 URL 一致

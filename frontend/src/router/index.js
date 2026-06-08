@@ -19,7 +19,9 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to) => {
+const DATA_ROUTES = new Set(['Dashboard', 'Records', 'Spending'])
+
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (!to.meta.public && !auth.isLoggedIn) {
     localStorage.setItem('redirectAfterLogin', to.fullPath)
@@ -27,6 +29,10 @@ router.beforeEach((to) => {
   }
   if (to.meta.admin && !auth.user?.is_admin) {
     return { name: 'Dashboard' }
+  }
+  if (auth.isLoggedIn && DATA_ROUTES.has(to.name)) {
+    const { useDataStore } = await import('../stores/data')
+    await useDataStore().check()
   }
 })
 
