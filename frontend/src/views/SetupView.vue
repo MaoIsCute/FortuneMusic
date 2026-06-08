@@ -17,7 +17,12 @@
               </a>
               <ol class="install-steps">
                 <li>下載後解壓縮 zip 檔案</li>
-                <li>Chrome 網址列輸入 <code>chrome://extensions/</code></li>
+                <li>Chrome 網址列輸入
+                  <span class="copy-row">
+                    <code>chrome://extensions/</code>
+                    <button class="copy-btn" @click="copy">{{ copied ? '已複製！' : '複製' }}</button>
+                  </span>
+                </li>
                 <li>右上角開啟「開發人員模式」</li>
                 <li>點「載入未封裝項目」→ 選剛才解壓縮的資料夾</li>
               </ol>
@@ -50,6 +55,13 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
+const copied = ref(false)
+function copy() {
+  navigator.clipboard.writeText('chrome://extensions/')
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 2000)
+}
 </script>
 
 <style scoped>
@@ -171,4 +183,16 @@ html.dark .step-title   { color: #d4d8e3; }
 html.dark .step-sub     { color: #6b7490; }
 html.dark .install-steps { color: #9aa3b5; }
 html.dark .install-steps code { background: #2e3450; color: #d4d8e3; }
+.copy-row { display: inline-flex; align-items: center; gap: 6px; }
+.copy-btn {
+  padding: 1px 8px;
+  font-size: 11px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  color: #555;
+}
+.copy-btn:hover { background: #f0f0f0; }
+html.dark .copy-btn { background: #2e3450; border-color: #3a3f5c; color: #b8bfcc; }
 </style>

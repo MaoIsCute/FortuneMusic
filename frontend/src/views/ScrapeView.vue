@@ -14,7 +14,12 @@
         </a>
         <ol class="install-steps">
           <li>下載後解壓縮 zip 檔案</li>
-          <li>Chrome 網址列輸入 <code>chrome://extensions/</code></li>
+          <li>Chrome 網址列輸入
+            <span class="copy-row">
+              <code>chrome://extensions/</code>
+              <button class="copy-btn" @click="copy">{{ copied ? '已複製！' : '複製' }}</button>
+            </span>
+          </li>
           <li>右上角開啟「開發人員模式」</li>
           <li>點「載入未封裝項目」→ 選剛才解壓縮的資料夾</li>
           <li>安裝完成後，再點一次「連結同步工具」</li>
@@ -37,6 +42,13 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+
+const copied = ref(false)
+function copy() {
+  navigator.clipboard.writeText('chrome://extensions/')
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 2000)
+}
 import { getScrapeToken } from '../api/index'
 
 const EXTENSION_ID = 'gdclpkfeiocedicokoenhconeoocigeh'
@@ -127,6 +139,17 @@ async function authorize() {
   border-radius: 4px;
   font-size: 12px;
 }
+.copy-row { display: inline-flex; align-items: center; gap: 6px; }
+.copy-btn {
+  padding: 1px 8px;
+  font-size: 11px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  color: #555;
+}
+.copy-btn:hover { background: #f0f0f0; }
 .success-icon { font-size: 40px; text-align: center; }
 .success-title { font-size: 20px; font-weight: bold; text-align: center; margin: 0; }
 .hint-box {
