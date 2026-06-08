@@ -3,8 +3,12 @@ chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch(() => {})
 
-// 接受來自 web app 的授權訊息，自動存入 token 與後端網址
+// 接受來自 web app 的訊息
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+  if (message.type === 'PING') {
+    sendResponse({ pong: true })
+    return
+  }
   if (message.type !== 'FORTUNE_SETUP') return
   const { token, backendUrl } = message
   if (!token || !backendUrl) {

@@ -2,8 +2,15 @@
   <div class="page">
     <h1 class="page-title">📊 總覽</h1>
 
+    <!-- 尚無資料提示 -->
+    <div v-if="!hasData" class="empty-card">
+      <div class="empty-icon">📭</div>
+      <p class="empty-title">還沒有任何資料</p>
+      <p class="empty-sub">點 Chrome 右上角的同步工具圖示，再點「同步」開始抓取你的抽選紀錄。</p>
+    </div>
+
     <!-- 全體統計 -->
-    <div class="stats-grid">
+    <div v-if="hasData" class="stats-grid">
       <div class="stat-card">
         <div class="stat-label">總應募數</div>
         <div class="stat-value">{{ overall.total_applied }}</div>
@@ -18,6 +25,7 @@
       </div>
     </div>
 
+    <template v-if="hasData">
     <!-- 應募次數別中選率折線圖 -->
     <div v-if="chartOption.series.length" class="chart-card">
       <div class="chart-header">
@@ -165,6 +173,7 @@
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -173,6 +182,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getStats, getDetailStats, getOrderSequenceStats } from '../api/index'
 import { useThemeStore } from '../stores/theme'
+import { detectExtension } from '../utils/extension'
 import { MEMBERS, sortMembersByGen } from '../utils/members'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -191,6 +201,7 @@ const ct = computed(() => themeStore.isDark
 
 const overall  = ref({ total_applied: 0, total_won: 0, win_rate: 0 })
 const rows     = ref([])
+const hasData  = ref(true)
 const expandedMembers = ref({})
 const expandedSingles = ref({}) // key: "memberName::singleName"
 const expandedRounds  = ref({}) // key: "memberName::singleName::round"
@@ -201,7 +212,12 @@ onMounted(async () => {
     overall.value = s.data
     rows.value    = d.data ?? []
     if (overall.value.total_applied === 0) {
-      router.replace('/setup')
+      const installed = await detectExtension()
+      if (!installed) {
+        router.replace('/setup')
+      } else {
+        hasData.value = false
+      }
     }
   } catch {
     // 保持預設 0 值
@@ -600,6 +616,21 @@ const chartOption = computed(() => {
 </script>
 
 <style scoped>
+.empty-card {
+  background: white;
+  border-radius: 16px;
+  padding: 48px 32px;
+  text-align: center;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  margin-bottom: 32px;
+}
+.empty-icon { font-size: 48px; margin-bottom: 16px; }
+.empty-title { font-size: 20px; font-weight: bold; color: #333; margin: 0 0 12px; }
+.empty-sub { color: #888; line-height: 1.7; margin: 0; }
+html.dark .empty-card  { background: #1e2030; }
+html.dark .empty-title { color: #e8eaf0; }
+html.dark .empty-sub   { color: #9aa3b5; }
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
