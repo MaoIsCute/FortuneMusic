@@ -154,10 +154,6 @@ func GoogleCallback(cfg *config.Config) gin.HandlerFunc {
 		code := hex.EncodeToString(codeBytes)
 		authCodeStore.Store(code, authCode{token: signed, userID: user.ID, expiresAt: time.Now().Add(60 * time.Second)})
 
-		frontendURL := cfg.FrontendURL
-		if frontendURL == "" {
-			frontendURL = "http://localhost:5173"
-		}
 		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"/auth/callback?code="+code)
 	}
 }
