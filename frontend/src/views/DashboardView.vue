@@ -170,6 +170,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { getStats, getDetailStats, getOrderSequenceStats } from '../api/index'
 import { useThemeStore } from '../stores/theme'
 import { MEMBERS, sortMembersByGen } from '../utils/members'
@@ -181,6 +182,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 
 use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
+const router = useRouter()
 const themeStore = useThemeStore()
 const ct = computed(() => themeStore.isDark
   ? { text: '#d4d8e3', sub: '#9aa3b5', line: '#3a3f5c' }
@@ -198,6 +200,9 @@ onMounted(async () => {
     const [s, d] = await Promise.all([getStats(), getDetailStats()])
     overall.value = s.data
     rows.value    = d.data ?? []
+    if (overall.value.total_applied === 0) {
+      router.replace('/setup')
+    }
   } catch {
     // 保持預設 0 值
   }
