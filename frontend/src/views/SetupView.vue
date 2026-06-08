@@ -12,7 +12,7 @@
             <div class="step-title">安裝同步工具</div>
             <div class="step-sub">將同步工具安裝到你的 Chrome 瀏覽器</div>
             <div class="step-install">
-              <a href="https://drive.google.com/uc?export=download&id=18jPhpsXSRq2xQsVadm80t1oJ145SF1kv" target="_blank" class="download-btn">
+              <a href="https://drive.google.com/uc?export=download&id=1saBWFwjuwawLZ3XBi6ocf2XOBvrWnNGD" target="_blank" class="download-btn">
                 ⬇️ 下載同步工具
               </a>
               <ol class="install-steps">
