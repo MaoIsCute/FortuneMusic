@@ -1,6 +1,8 @@
 <template>
   <div class="page">
     <h1 class="page-title">📋 抽選紀錄</h1>
+    <EmptyState v-if="isEmpty" />
+    <template v-else>
     <div class="filters">
       <el-select v-model="filterMember" placeholder="選擇成員" clearable @change="loadRecords">
         <el-option v-for="m in memberList" :key="m" :label="m" :value="m" />
@@ -39,13 +41,15 @@
         @current-change="fetchPage"
       />
     </div>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getRecords, getStatsByMember, getDetailStats } from '../api/index'
 import { sortMembersByGen } from '../utils/members'
+import EmptyState from '../components/EmptyState.vue'
 
 const records  = ref([])
 const total    = ref(0)
@@ -59,6 +63,11 @@ const filterRound  = ref('')
 const memberList = ref([])
 const singleList = ref([])
 const roundList  = ref([])
+const loaded     = ref(false)
+
+const isEmpty = computed(() =>
+  loaded.value && total.value === 0 && !filterMember.value && !filterSingle.value && !filterRound.value
+)
 
 onMounted(async () => {
   const [membersRes, detailRes] = await Promise.all([getStatsByMember(), getDetailStats()])
@@ -67,6 +76,7 @@ onMounted(async () => {
   singleList.value = [...new Set(rows.map(r => r.single_name).filter(Boolean))].sort()
   roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) => a - b)
   await loadRecords()
+  loaded.value = true
 })
 
 async function loadRecords() {

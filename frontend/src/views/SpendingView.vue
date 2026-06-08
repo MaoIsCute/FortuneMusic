@@ -2,6 +2,8 @@
   <div class="page">
     <h1 class="page-title">💰 花費統計</h1>
 
+    <EmptyState v-if="isEmpty" />
+    <template v-else>
     <!-- 總覽 -->
     <div class="stats-row">
       <el-card class="stat-card">
@@ -66,16 +68,21 @@
         </el-table-column>
       </el-table>
     </el-card>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getPurchaseOverallStats, getPurchaseTree, getPurchaseStatsByMember } from '../api/index'
+import EmptyState from '../components/EmptyState.vue'
 
 const overall  = ref({})
 const tree     = ref([])
 const byMember = ref([])
+const loaded   = ref(false)
+
+const isEmpty = computed(() => loaded.value && tree.value.length === 0)
 
 function formatRound(round) {
   return round ? `${round}抽` : '—'
@@ -90,6 +97,7 @@ async function load() {
   overall.value  = o.data
   tree.value     = t.data ?? []
   byMember.value = mb.data ?? []
+  loaded.value   = true
 }
 
 onMounted(load)

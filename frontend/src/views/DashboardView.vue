@@ -3,11 +3,7 @@
     <h1 class="page-title">📊 總覽</h1>
 
     <!-- 尚無資料提示 -->
-    <div v-if="!hasData" class="empty-card">
-      <div class="empty-icon">📭</div>
-      <p class="empty-title">還沒有任何資料</p>
-      <p class="empty-sub">點 Chrome 右上角的同步工具圖示，再點「同步」開始抓取你的抽選紀錄。</p>
-    </div>
+    <EmptyState v-if="!hasData" />
 
     <!-- 全體統計 -->
     <div v-if="hasData" class="stats-grid">
@@ -183,6 +179,7 @@ import { useRouter } from 'vue-router'
 import { getStats, getDetailStats, getOrderSequenceStats } from '../api/index'
 import { useThemeStore } from '../stores/theme'
 import { detectExtension } from '../utils/extension'
+import EmptyState from '../components/EmptyState.vue'
 import { MEMBERS, sortMembersByGen } from '../utils/members'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
