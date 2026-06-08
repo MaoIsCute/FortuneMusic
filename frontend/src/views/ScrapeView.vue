@@ -1,15 +1,23 @@
 <template>
   <div class="page">
     <h1 class="page-title">同步工具設定</h1>
-    <div class="setup-card">
+    <!-- 連結前 -->
+    <div v-if="statusType !== 'success'" class="setup-card">
       <p class="desc">點擊下方按鈕，自動將你的帳號與同步工具連結，完成一鍵設定。</p>
       <el-button type="primary" size="large" :loading="loading" @click="authorize">
         連結同步工具
       </el-button>
       <p v-if="statusMsg" :class="['status-msg', statusType]">{{ statusMsg }}</p>
-      <el-button v-if="statusType === 'success'" type="success" size="large" @click="router.push('/dashboard')">
-        完成，前往主頁 →
-      </el-button>
+    </div>
+
+    <!-- 連結成功後：引導下一步 -->
+    <div v-else class="setup-card">
+      <div class="success-icon">✅</div>
+      <h2 class="success-title">連結成功！</h2>
+      <p class="desc">最後一步：點 Chrome 右上角的同步工具圖示，再點「同步」，就會開始抓取你的資料。</p>
+      <div class="hint-box">
+        <p>抓取完成後，點左上角「總覽」就能看到你的統計資料了。</p>
+      </div>
     </div>
   </div>
 </template>
@@ -79,4 +87,16 @@ async function authorize() {
 .status-msg { margin: 0; font-size: 14px; }
 .status-msg.success { color: #52c41a; }
 .status-msg.error   { color: #ff4d4f; }
+.success-icon { font-size: 40px; text-align: center; }
+.success-title { font-size: 20px; font-weight: bold; text-align: center; margin: 0; }
+.hint-box {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-size: 14px;
+  color: #166534;
+}
+.hint-box p { margin: 0; }
+html.dark .hint-box { background: #14532d; border-color: #166534; color: #bbf7d0; }
 </style>
