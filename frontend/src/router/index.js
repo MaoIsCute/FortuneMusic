@@ -8,7 +8,7 @@ const routes = [
   { path: '/dashboard', name: 'Dashboard', component: () => import('../views/DashboardView.vue') },
   { path: '/member/:name', name: 'Member', component: () => import('../views/MemberView.vue') },
   { path: '/records', name: 'Records', component: () => import('../views/RecordsView.vue') },
-  { path: '/full', name: 'Full', component: () => import('../views/FullView.vue') },
+  { path: '/full', redirect: '/dashboard' },
   { path: '/spending', name: 'Spending', component: () => import('../views/SpendingView.vue') },
   { path: '/scrape', name: 'Scrape', component: () => import('../views/ScrapeView.vue') },
   { path: '/admin', name: 'Admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
