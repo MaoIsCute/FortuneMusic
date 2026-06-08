@@ -94,8 +94,18 @@ type googleUser struct {
 
 func GoogleCallback(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		frontendURL := cfg.FrontendURL
+		if frontendURL == "" {
+			frontendURL = "http://localhost:5173"
+		}
+
+		if c.Query("error") != "" {
+			c.Redirect(http.StatusTemporaryRedirect, frontendURL+"/?error=cancelled")
+			return
+		}
+
 		if !verifyState(c.Query("state"), cfg.JWTSecret) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+			c.Redirect(http.StatusTemporaryRedirect, frontendURL+"/?error=cancelled")
 			return
 		}
 

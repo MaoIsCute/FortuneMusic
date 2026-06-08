@@ -3,6 +3,7 @@
     <div class="login-card">
       <div class="logo">🎵 Fortune Tracker</div>
       <p class="subtitle">乃木坂46 抽選統計</p>
+      <p v-if="cancelled" class="cancelled-msg">已取消登入，請重新嘗試。</p>
       <a :href="googleLoginUrl" class="google-btn">
         <img src="https://www.google.com/favicon.ico" width="18" />
         Google でログイン
@@ -12,8 +13,11 @@
 </template>
 
 <script setup>
+import { useRoute } from 'vue-router'
+const route = useRoute()
 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 const googleLoginUrl = apiUrl + '/auth/google'
+const cancelled = route.query.error === 'cancelled'
 </script>
 
 <style scoped>
@@ -47,4 +51,5 @@ const googleLoginUrl = apiUrl + '/auth/google'
   transition: background 0.2s;
 }
 .google-btn:hover { background: #f5f5f5; }
+.cancelled-msg { color: #e53e3e; font-size: 14px; margin-bottom: 16px; }
 </style>
