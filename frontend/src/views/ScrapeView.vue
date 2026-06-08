@@ -8,6 +8,18 @@
         連結同步工具
       </el-button>
       <p v-if="statusMsg" :class="['status-msg', statusType]">{{ statusMsg }}</p>
+      <div v-if="statusType === 'error'" class="install-guide">
+        <a href="https://drive.google.com/uc?export=download&id=18jPhpsXSRq2xQsVadm80t1oJ145SF1kv" target="_blank" class="download-btn">
+          ⬇️ 下載同步工具
+        </a>
+        <ol class="install-steps">
+          <li>下載後解壓縮 zip 檔案</li>
+          <li>Chrome 網址列輸入 <code>chrome://extensions/</code></li>
+          <li>右上角開啟「開發人員模式」</li>
+          <li>點「載入未封裝項目」→ 選剛才解壓縮的資料夾</li>
+          <li>安裝完成後，再點一次「連結同步工具」</li>
+        </ol>
+      </div>
     </div>
 
     <!-- 連結成功後：引導下一步 -->
@@ -63,7 +75,7 @@ async function authorize() {
   } catch (e) {
     const msg = e.message || ''
     statusMsg.value = msg.includes('Could not establish connection') || msg.includes('Extension')
-      ? '找不到同步工具，請確認已安裝並啟用。'
+      ? '找不到同步工具，請先下載並安裝。'
       : msg
     statusType.value = 'error'
   } finally {
@@ -87,6 +99,34 @@ async function authorize() {
 .status-msg { margin: 0; font-size: 14px; }
 .status-msg.success { color: #52c41a; }
 .status-msg.error   { color: #ff4d4f; }
+.install-guide { display: flex; flex-direction: column; gap: 10px; }
+.download-btn {
+  display: inline-block;
+  padding: 8px 20px;
+  background: var(--color-primary);
+  color: white;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+}
+.download-btn:hover { opacity: 0.85; }
+.install-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #666;
+}
+.install-steps code {
+  background: #f0f0f0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
 .success-icon { font-size: 40px; text-align: center; }
 .success-title { font-size: 20px; font-weight: bold; text-align: center; margin: 0; }
 .hint-box {

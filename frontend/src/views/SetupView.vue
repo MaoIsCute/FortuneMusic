@@ -11,6 +11,17 @@
           <div class="step-text">
             <div class="step-title">安裝同步工具</div>
             <div class="step-sub">將同步工具安裝到你的 Chrome 瀏覽器</div>
+            <div class="step-install">
+              <a href="https://drive.google.com/uc?export=download&id=18jPhpsXSRq2xQsVadm80t1oJ145SF1kv" target="_blank" class="download-btn">
+                ⬇️ 下載同步工具
+              </a>
+              <ol class="install-steps">
+                <li>下載後解壓縮 zip 檔案</li>
+                <li>Chrome 網址列輸入 <code>chrome://extensions/</code></li>
+                <li>右上角開啟「開發人員模式」</li>
+                <li>點「載入未封裝項目」→ 選剛才解壓縮的資料夾</li>
+              </ol>
+            </div>
           </div>
         </div>
         <div class="step">
@@ -124,9 +135,40 @@
   height: 48px;
 }
 
+.step-install { margin-top: 10px; }
+.download-btn {
+  display: inline-block;
+  padding: 6px 16px;
+  background: var(--color-primary);
+  color: white;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.download-btn:hover { opacity: 0.85; }
+.install-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #666;
+}
+.install-steps code {
+  background: #f0f0f0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
 html.dark .setup-card   { background: #1e2030; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
 html.dark .setup-title  { color: #e8eaf0; }
 html.dark .setup-desc   { color: #9aa3b5; }
 html.dark .step-title   { color: #d4d8e3; }
 html.dark .step-sub     { color: #6b7490; }
+html.dark .install-steps { color: #9aa3b5; }
+html.dark .install-steps code { background: #2e3450; color: #d4d8e3; }
 </style>
