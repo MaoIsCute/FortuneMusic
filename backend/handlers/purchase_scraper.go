@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"fortune-tracker/db"
@@ -83,6 +84,7 @@ func PushPurchases(c *gin.Context) {
 
 	now := time.Now()
 	newCount, skipped := 0, 0
+	corrections := loadCorrectionMap()
 
 	for _, p := range req.Purchases {
 		itemKey := fmt.Sprintf("%s:%s:%s:%s", p.EntryID, p.MemberName, p.EventDate, p.Session)
@@ -96,6 +98,13 @@ func PushPurchases(c *gin.Context) {
 			continue
 		}
 
+		singleName := p.SingleName
+		if strings.Contains(singleName, "タイトル未定") {
+			if corrected, ok := corrections[p.SingleNumber]; ok {
+				singleName = corrected
+			}
+		}
+
 		purchase := models.Purchase{
 			UserID:       user.ID,
 			ItemKey:      itemKey,
@@ -105,7 +114,7 @@ func PushPurchases(c *gin.Context) {
 			EventDate:    p.EventDate,
 			Session:      p.Session,
 			SingleNumber: p.SingleNumber,
-			SingleName:   p.SingleName,
+			SingleName:   singleName,
 			LotteryRound: p.LotteryRound,
 			UnitPrice:    p.UnitPrice,
 			Quantity:     p.Quantity,

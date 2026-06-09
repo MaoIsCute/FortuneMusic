@@ -37,7 +37,7 @@ func Init(cfg *config.Config) {
 		`)
 	}
 
-	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.Purchase{}, &models.ScrapeLog{}); err != nil {
+	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.Purchase{}, &models.ScrapeLog{}, &models.TitleCorrection{}); err != nil {
 		log.Fatal("AutoMigrate failed:", err)
 	}
 

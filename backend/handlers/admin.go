@@ -146,11 +146,20 @@ func DeleteUserFullRecords(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
 }
 
+func loadCorrectionMap() map[int]string {
+	var corrections []models.TitleCorrection
+	db.DB.Find(&corrections)
+	m := make(map[int]string, len(corrections))
+	for _, c := range corrections {
+		m[c.SingleNumber] = c.SingleName
+	}
+	return m
+}
+
 func FixSingleTitle(c *gin.Context) {
 	if !checkAdmin(c) {
 		return
 	}
-	userID := getUserID(c)
 
 	var req struct {
 		SingleNumber int    `json:"single_number" binding:"required"`
@@ -165,10 +174,15 @@ func FixSingleTitle(c *gin.Context) {
 		return
 	}
 
+	// 更新所有使用者的記錄
 	result := db.DB.Model(&models.Record{}).
-		Where("user_id = ? AND single_number = ? AND single_name LIKE ?",
-			userID, req.SingleNumber, "%タイトル未定%").
+		Where("single_number = ? AND single_name LIKE ?", req.SingleNumber, "%タイトル未定%").
 		Update("single_name", req.SingleName)
+
+	// 儲存對照表供未來自動套用
+	db.DB.Where(models.TitleCorrection{SingleNumber: req.SingleNumber}).
+		Assign(models.TitleCorrection{SingleName: req.SingleName}).
+		FirstOrCreate(&models.TitleCorrection{})
 
 	c.JSON(http.StatusOK, gin.H{"updated": result.RowsAffected})
 }
@@ -226,7 +240,6 @@ func FixPurchaseTitle(c *gin.Context) {
 	if !checkAdmin(c) {
 		return
 	}
-	userID := getUserID(c)
 
 	var req struct {
 		SingleNumber int    `json:"single_number" binding:"required"`
@@ -241,10 +254,15 @@ func FixPurchaseTitle(c *gin.Context) {
 		return
 	}
 
+	// 更新所有使用者的購入記錄
 	result := db.DB.Model(&models.Purchase{}).
-		Where("user_id = ? AND single_number = ? AND single_name LIKE ?",
-			userID, req.SingleNumber, "%タイトル未定%").
+		Where("single_number = ? AND single_name LIKE ?", req.SingleNumber, "%タイトル未定%").
 		Update("single_name", req.SingleName)
+
+	// 儲存對照表（與個握共用）
+	db.DB.Where(models.TitleCorrection{SingleNumber: req.SingleNumber}).
+		Assign(models.TitleCorrection{SingleName: req.SingleName}).
+		FirstOrCreate(&models.TitleCorrection{})
 
 	c.JSON(http.StatusOK, gin.H{"updated": result.RowsAffected})
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"fortune-tracker/db"
@@ -97,6 +98,7 @@ func PushRecords(c *gin.Context) {
 
 	newRecords, skipped := 0, 0
 	now := time.Now()
+	corrections := loadCorrectionMap()
 
 	for _, r := range req.Records {
 		var existing models.Record
@@ -104,11 +106,17 @@ func PushRecords(c *gin.Context) {
 			skipped++
 			continue
 		}
+		singleName := r.SingleName
+		if strings.Contains(singleName, "タイトル未定") {
+			if corrected, ok := corrections[r.SingleNumber]; ok {
+				singleName = corrected
+			}
+		}
 		rec := models.Record{
 			UserID:       user.ID,
 			OrderID:      extractOrderID(r.SourceURL),
 			SingleNumber: r.SingleNumber,
-			SingleName:   r.SingleName,
+			SingleName:   singleName,
 			LotteryRound: r.LotteryRound,
 			MemberName:   r.MemberName,
 			EventDate:    r.EventDate,
@@ -193,16 +201,23 @@ func UpdateTitles(c *gin.Context) {
 		return
 	}
 
+	corrections := loadCorrectionMap()
 	updated := 0
 	for _, u := range req.Updates {
 		if u.SingleName == "" {
 			continue
 		}
+		singleName := u.SingleName
+		if strings.Contains(singleName, "タイトル未定") {
+			if corrected, ok := corrections[u.SingleNumber]; ok {
+				singleName = corrected
+			}
+		}
 		result := db.DB.Model(&models.Record{}).
 			Where("user_id = ? AND order_id = ? AND single_name != ?",
-				user.ID, u.OrderID, u.SingleName).
+				user.ID, u.OrderID, singleName).
 			Updates(map[string]interface{}{
-				"single_name":   u.SingleName,
+				"single_name":   singleName,
 				"single_number": u.SingleNumber,
 			})
 		updated += int(result.RowsAffected)
