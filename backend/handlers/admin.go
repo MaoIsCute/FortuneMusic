@@ -38,21 +38,43 @@ func GetTitleIssues(c *gin.Context) {
 	if !checkAdmin(c) {
 		return
 	}
-	userID := getUserID(c)
 
 	type issueRow struct {
 		SingleNumber int
 		SingleName   string
 		Count        int64
 	}
-	var issues []issueRow
+
+	// 合併個握 + 購入的 タイトル未定（所有使用者）
+	countMap := map[int]int64{}
+	nameMap := map[int]string{}
+
+	var recIssues []issueRow
 	db.DB.Model(&models.Record{}).
 		Select("single_number, single_name, COUNT(*) as count").
-		Where("user_id = ? AND single_name LIKE ?", userID, "%タイトル未定%").
+		Where("single_name LIKE ?", "%タイトル未定%").
 		Group("single_number, single_name").
-		Order("single_number").
-		Scan(&issues)
+		Scan(&recIssues)
+	for _, r := range recIssues {
+		countMap[r.SingleNumber] += r.Count
+		nameMap[r.SingleNumber] = r.SingleName
+	}
 
+	var purIssues []issueRow
+	db.DB.Model(&models.Purchase{}).
+		Select("single_number, single_name, COUNT(*) as count").
+		Where("single_name LIKE ?", "%タイトル未定%").
+		Group("single_number, single_name").
+		Scan(&purIssues)
+	for _, r := range purIssues {
+		countMap[r.SingleNumber] += r.Count
+		if _, exists := nameMap[r.SingleNumber]; !exists {
+			nameMap[r.SingleNumber] = r.SingleName
+		}
+	}
+
+	// 建議名稱：先查 title_corrections，再從現有正確記錄推測
+	corrections := loadCorrectionMap()
 	type correctRow struct {
 		SingleNumber int
 		SingleName   string
@@ -60,25 +82,33 @@ func GetTitleIssues(c *gin.Context) {
 	var corrects []correctRow
 	db.DB.Model(&models.Record{}).
 		Select("single_number, single_name").
-		Where("user_id = ? AND single_name NOT LIKE ? AND single_name != ''", userID, "%タイトル未定%").
+		Where("single_name NOT LIKE ? AND single_name != ''", "%タイトル未定%").
 		Group("single_number, single_name").
 		Scan(&corrects)
-
 	suggestMap := map[int]string{}
+	for sn, name := range corrections {
+		suggestMap[sn] = name
+	}
 	for _, r := range corrects {
 		if _, exists := suggestMap[r.SingleNumber]; !exists {
 			suggestMap[r.SingleNumber] = r.SingleName
 		}
 	}
 
-	result := make([]TitleIssue, 0, len(issues))
-	for _, iss := range issues {
+	result := make([]TitleIssue, 0, len(countMap))
+	for sn, count := range countMap {
 		result = append(result, TitleIssue{
-			SingleNumber:  iss.SingleNumber,
-			CurrentName:   iss.SingleName,
-			SuggestedName: suggestMap[iss.SingleNumber],
-			Count:         iss.Count,
+			SingleNumber:  sn,
+			CurrentName:   nameMap[sn],
+			SuggestedName: suggestMap[sn],
+			Count:         count,
 		})
+	}
+	// 依單曲號排序
+	for i := 1; i < len(result); i++ {
+		for j := i; j > 0 && result[j].SingleNumber < result[j-1].SingleNumber; j-- {
+			result[j], result[j-1] = result[j-1], result[j]
+		}
 	}
 
 	c.JSON(http.StatusOK, result)
@@ -174,8 +204,11 @@ func FixSingleTitle(c *gin.Context) {
 		return
 	}
 
-	// 更新所有使用者的記錄
-	result := db.DB.Model(&models.Record{}).
+	// 同時更新個握 + 購入（所有使用者）
+	recResult := db.DB.Model(&models.Record{}).
+		Where("single_number = ? AND single_name LIKE ?", req.SingleNumber, "%タイトル未定%").
+		Update("single_name", req.SingleName)
+	purResult := db.DB.Model(&models.Purchase{}).
 		Where("single_number = ? AND single_name LIKE ?", req.SingleNumber, "%タイトル未定%").
 		Update("single_name", req.SingleName)
 
@@ -184,7 +217,7 @@ func FixSingleTitle(c *gin.Context) {
 		Assign(models.TitleCorrection{SingleName: req.SingleName}).
 		FirstOrCreate(&models.TitleCorrection{})
 
-	c.JSON(http.StatusOK, gin.H{"updated": result.RowsAffected})
+	c.JSON(http.StatusOK, gin.H{"updated": recResult.RowsAffected + purResult.RowsAffected})
 }
 
 func GetPurchaseTitleIssues(c *gin.Context) {

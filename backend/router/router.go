@@ -52,8 +52,6 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.DELETE("/admin/users/:id/purchases", handlers.DeleteUserPurchases)
 		api.GET("/admin/title-issues", handlers.GetTitleIssues)
 		api.PUT("/admin/title", handlers.FixSingleTitle)
-		api.GET("/admin/purchase-title-issues", handlers.GetPurchaseTitleIssues)
-		api.PUT("/admin/purchase-title", handlers.FixPurchaseTitle)
 		api.GET("/admin/scrape-logs", handlers.GetAdminScrapeLogs)
 		api.GET("/scrape-token", handlers.GetScrapeToken)
 		api.POST("/scrape", handlers.TriggerScrape)
