@@ -17,6 +17,11 @@
             {{ row.last_scraped ? row.last_scraped.replace('T', ' ').slice(0, 16) : '—' }}
           </template>
         </el-table-column>
+        <el-table-column label="" width="100">
+          <template #default="{ row }">
+            <el-button type="primary" size="small" plain @click="viewAs(row)">模擬畫面</el-button>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
 
@@ -152,8 +157,12 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getAdminTitleIssues, fixSingleTitle, getAdminPurchaseTitleIssues, fixPurchaseTitle, getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, getAdminScrapeLogs } from '../api/index'
+import { useImpersonateStore } from '../stores/impersonate'
+import { useDataStore } from '../stores/data'
 
 const router = useRouter()
+const impersonateStore = useImpersonateStore()
+const dataStore = useDataStore()
 const users          = ref([])
 const issues         = ref([])
 const purchaseIssues = ref([])
@@ -166,6 +175,12 @@ const del = ref({
   singleNumber: '',
   dateRange:    [],
 })
+
+function viewAs(user) {
+  impersonateStore.start(user)
+  dataStore.invalidate()
+  router.push('/dashboard')
+}
 
 async function loadUsers() {
   try {

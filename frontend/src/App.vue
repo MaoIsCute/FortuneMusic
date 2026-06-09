@@ -1,7 +1,8 @@
 ﻿<template>
   <div :class="['app', themeStore.isDark ? 'dark' : '']">
+    <ImpersonateBanner />
     <NavBar v-if="auth.isLoggedIn" />
-    <main class="main">
+    <main class="main" :style="impersonate.user ? 'padding-top: 60px' : ''">
       <router-view />
     </main>
   </div>
@@ -10,12 +11,15 @@
 <script setup>
 import { onMounted } from 'vue'
 import NavBar from './components/NavBar.vue'
+import ImpersonateBanner from './components/ImpersonateBanner.vue'
 import { useThemeStore } from './stores/theme'
 import { useAuthStore } from './stores/auth'
+import { useImpersonateStore } from './stores/impersonate'
 import { getMe } from './api/index'
 
 const themeStore = useThemeStore()
 const auth = useAuthStore()
+const impersonate = useImpersonateStore()
 
 onMounted(async () => {
   if (auth.isLoggedIn && !auth.user) {

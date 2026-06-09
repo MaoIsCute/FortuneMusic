@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
+import { useImpersonateStore } from '../stores/impersonate'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8080',
@@ -9,6 +10,10 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) config.headers.Authorization = 'Bearer ' + token
+  const impersonateStore = useImpersonateStore()
+  if (impersonateStore.user) {
+    config.headers['X-Impersonate-User'] = String(impersonateStore.user.id)
+  }
   return config
 })
 

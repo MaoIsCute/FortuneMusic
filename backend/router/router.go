@@ -43,7 +43,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	r.POST("/scrape/purchases/push", handlers.PushPurchases)
 	r.POST("/scrape/log", handlers.PushScrapeLog)
 
-	api := r.Group("/api", middleware.AuthRequired(cfg))
+	api := r.Group("/api", middleware.AuthRequired(cfg), middleware.ImpersonateMiddleware(cfg.AdminEmail))
 	{
 		api.GET("/me", handlers.GetMe)
 		api.GET("/admin/users", handlers.GetAdminUsers)
