@@ -15,6 +15,6 @@ type Record struct {
 	Session       string    `gorm:"not null" json:"session"`
 	AppliedCount  int       `gorm:"not null" json:"applied_count"`
 	WonCount      int       `gorm:"not null" json:"won_count"`
-	SourceURL     string    `json:"source_url"`
+	SourceURL     string    `gorm:"uniqueIndex:idx_records_source_url,where:source_url <> ''" json:"source_url"`
 	ScrapedAt     time.Time `json:"scraped_at"`
 }

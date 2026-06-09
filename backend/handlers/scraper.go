@@ -101,10 +101,13 @@ func PushRecords(c *gin.Context) {
 	corrections := loadCorrectionMap()
 
 	for _, r := range req.Records {
-		var existing models.Record
-		if db.DB.Where("user_id = ? AND source_url = ?", user.ID, r.SourceURL).First(&existing).Error == nil {
-			skipped++
-			continue
+		if r.SourceURL != "" {
+			var cnt int64
+			db.DB.Model(&models.Record{}).Where("source_url = ?", r.SourceURL).Count(&cnt)
+			if cnt > 0 {
+				skipped++
+				continue
+			}
 		}
 		singleName := r.SingleName
 		if strings.Contains(singleName, "タイトル未定") {

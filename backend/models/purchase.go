@@ -4,9 +4,9 @@ import "time"
 
 type Purchase struct {
 	ID           uint       `gorm:"primaryKey" json:"id"`
-	UserID       uint       `gorm:"uniqueIndex:idx_user_item_key,priority:1;not null" json:"user_id"`
+	UserID       uint       `gorm:"index;not null" json:"user_id"`
 	User         User       `gorm:"foreignKey:UserID" json:"-"`
-	ItemKey      string     `gorm:"uniqueIndex:idx_user_item_key,priority:2;not null" json:"item_key"`
+	ItemKey      string     `gorm:"uniqueIndex;not null" json:"item_key"`
 	EntryID      string     `gorm:"index;not null" json:"entry_id"`
 	OrderNumber  string     `json:"order_number"`
 	MemberName   string     `gorm:"not null" json:"member_name"`

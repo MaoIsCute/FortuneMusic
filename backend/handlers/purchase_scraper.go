@@ -91,7 +91,7 @@ func PushPurchases(c *gin.Context) {
 
 		var exists int64
 		db.DB.Model(&models.Purchase{}).
-			Where("user_id = ? AND item_key = ?", user.ID, itemKey).
+			Where("item_key = ?", itemKey).
 			Count(&exists)
 		if exists > 0 {
 			skipped++
