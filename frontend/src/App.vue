@@ -1,10 +1,12 @@
 ﻿<template>
   <div :class="['app', themeStore.isDark ? 'dark' : '']">
     <ImpersonateBanner />
-    <NavBar v-if="auth.isLoggedIn" />
-    <main class="main" :style="impersonate.user ? 'padding-top: 60px' : ''">
-      <router-view />
-    </main>
+    <div :style="impersonate.user ? 'padding-top: 40px' : ''">
+      <NavBar v-if="auth.isLoggedIn" />
+      <main class="main">
+        <router-view />
+      </main>
+    </div>
   </div>
 </template>
 
