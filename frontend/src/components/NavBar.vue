@@ -4,6 +4,7 @@
     <div class="links">
       <router-link to="/dashboard">總覽</router-link>
       <router-link to="/records">個握紀錄</router-link>
+      <router-link to="/full">全握紀錄</router-link>
       <router-link to="/spending">花費</router-link>
       <router-link to="/scrape">同步工具</router-link>
       <router-link v-if="isAdmin" to="/admin">管理</router-link>
