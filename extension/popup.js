@@ -13,6 +13,21 @@ const fullEndEl        = document.getElementById('fullEnd')
 const fullGroupEl      = document.getElementById('fullGroup')
 const purchaseSyncBtn   = document.getElementById('purchaseSyncBtn')
 const purchaseScrapeBtn = document.getElementById('purchaseScrapeBtn')
+const stopBtn           = document.getElementById('stopBtn')
+
+let isStopping = false
+
+function showStopBtn(show) {
+  stopBtn.style.display  = show ? 'inline-block' : 'none'
+  stopBtn.textContent    = '停止'
+  stopBtn.disabled       = false
+}
+
+stopBtn.addEventListener('click', () => {
+  isStopping         = true
+  stopBtn.textContent = '停止中...'
+  stopBtn.disabled    = true
+})
 
 // ─── 階段一：掃描申請列表，不進 detail page ──────────────────────────────────
 // 回傳 { orders: [{id, info}], hasMore } 或 { error }
@@ -244,18 +259,20 @@ function hideProgress() {
   progressBarFill.style.width = '0%'
 }
 
-function addLogEntry(type, newCount, skipCount, errorMsg) {
+function addLogEntry(type, newCount, skipCount, errorMsg, stopped = false) {
   const empty = logList.querySelector('.log-empty')
   if (empty) empty.remove()
 
   const now = new Date()
   const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0')
-  const isError = !!errorMsg
-  const isEmpty = !errorMsg && newCount === 0 && skipCount === 0
-  const cls  = isError ? 'error' : isEmpty ? 'warning' : 'success'
-  const icon = isError ? '❌' : isEmpty ? '⚠️' : '✅'
-  const body = isError ? errorMsg
-    : isEmpty ? '無新資料'
+  const isError   = !!errorMsg
+  const isStopped = stopped && !isError
+  const isEmpty   = !errorMsg && !stopped && newCount === 0 && skipCount === 0
+  const cls  = isError ? 'error' : (isStopped || isEmpty) ? 'warning' : 'success'
+  const icon = isError ? '❌' : (isStopped || isEmpty) ? '⚠️' : '✅'
+  const body = isError   ? errorMsg
+    : isStopped ? `已停止 · 新增 ${newCount} 筆${skipCount > 0 ? ' · 跳過 ' + skipCount : ''}`
+    : isEmpty   ? '無新資料'
     : `新增 ${newCount} 筆${skipCount > 0 ? ' · 跳過 ' + skipCount : ''}`
 
   const el = document.createElement('div')
@@ -329,6 +346,8 @@ scrapeBtn.addEventListener('click', async () => {
 
   scrapeBtn.disabled    = true
   scrapeBtn.textContent = '抓取中...'
+  isStopping = false
+  showStopBtn(true)
 
   let totalNew     = 0
   let totalSkipped = 0
@@ -341,6 +360,7 @@ scrapeBtn.addEventListener('click', async () => {
     if (tabs.length === 0) throw new Error('找不到申請列表分頁，請先點「同步」開啟頁面，確認登入後再試')
 
     while (true) {
+      if (isStopping) break
       updateProgress('個握抽選', 0, 0, `掃描第 ${page} 頁...`)
       const listResult = await chrome.scripting.executeScript({
         target: { tabId: tabs[0].id },
@@ -414,9 +434,9 @@ scrapeBtn.addEventListener('click', async () => {
     }
 
     hideProgress()
-    addLogEntry('個握抽選', totalNew, totalSkipped, errorMsg || null)
+    addLogEntry('個握抽選', totalNew, totalSkipped, errorMsg || null, isStopping)
     await pushScrapeLog(backendUrl, scrapeToken, '個握抽選', totalNew, totalSkipped, errorMsg)
-    if (!errorMsg) setWaitingMode(false)
+    if (!errorMsg && !isStopping) setWaitingMode(false)
   } catch (e) {
     hideProgress()
     addLogEntry('個握抽選', totalNew, totalSkipped, e.message)
@@ -424,6 +444,7 @@ scrapeBtn.addEventListener('click', async () => {
   } finally {
     scrapeBtn.disabled    = false
     scrapeBtn.textContent = '開始抓取'
+    showStopBtn(false)
   }
 })
 
@@ -468,7 +489,7 @@ function parseFullApiResults(results, singleNum, group) {
     const lotteryRound = parseLotteryRound(prizeInfo.times || '')
     const isSign = (item.prizeId || '').includes('_sign') || (prizeInfo.event || '').includes('サイン')
 
-    const orderId = `full:${group}_${singleNum}${suffix}:${item.prizeId}`
+    const orderId = `full:${group}_${singleNum}${suffix}:${item.prizeId}:${memberName}:${lotteryRound}`
     if (seen.has(orderId)) continue
     seen.add(orderId)
 
@@ -562,6 +583,8 @@ fullScrapeBtn.addEventListener('click', async () => {
 
   fullScrapeBtn.disabled    = true
   fullScrapeBtn.textContent = '抓取中...'
+  isStopping = false
+  showStopBtn(true)
 
   let totalNew = 0, totalSkipped = 0, emptyStreak = 0
   const MAX_EMPTY    = 3
@@ -571,6 +594,7 @@ fullScrapeBtn.addEventListener('click', async () => {
   try {
     for (let n = startNum; ; n++) {
       if (endNum > 0 && n > endNum) break
+      if (isStopping) break
 
       const suffix      = ordinalSuffix(n)
       const artistEvent = `${group}_${n}${suffix}`
@@ -624,9 +648,9 @@ fullScrapeBtn.addEventListener('click', async () => {
     }
 
     hideProgress()
-    addLogEntry('全握', totalNew, totalSkipped, errorMsg || null)
+    addLogEntry('全握', totalNew, totalSkipped, errorMsg || null, isStopping)
     await pushScrapeLog(backendUrl, scrapeToken, '全握', totalNew, totalSkipped, errorMsg)
-    if (!errorMsg) setFullWaitingMode(false)
+    if (!errorMsg && !isStopping) setFullWaitingMode(false)
   } catch (e) {
     hideProgress()
     addLogEntry('全握', totalNew, totalSkipped, e.message)
@@ -634,6 +658,7 @@ fullScrapeBtn.addEventListener('click', async () => {
   } finally {
     fullScrapeBtn.disabled    = false
     fullScrapeBtn.textContent = '開始全握抓取'
+    showStopBtn(false)
   }
 })
 
@@ -829,6 +854,8 @@ purchaseScrapeBtn.addEventListener('click', async () => {
 
   purchaseScrapeBtn.disabled    = true
   purchaseScrapeBtn.textContent = '抓取中...'
+  isStopping = false
+  showStopBtn(true)
 
   let totalNew = 0, totalSkipped = 0, page = 1, errorMsg = ''
 
@@ -837,6 +864,7 @@ purchaseScrapeBtn.addEventListener('click', async () => {
     if (tabs.length === 0) throw new Error('找不到購入記錄分頁，請先點「同步」開啟頁面，確認登入後再試')
 
     while (true) {
+      if (isStopping) break
       updateProgress('個握花費', 0, 0, `掃描第 ${page} 頁...　新增 ${totalNew} · 跳過 ${totalSkipped}`)
       const listResult = await chrome.scripting.executeScript({
         target: { tabId: tabs[0].id },
@@ -886,9 +914,9 @@ purchaseScrapeBtn.addEventListener('click', async () => {
     }
 
     hideProgress()
-    addLogEntry('個握花費', totalNew, totalSkipped, errorMsg || null)
+    addLogEntry('個握花費', totalNew, totalSkipped, errorMsg || null, isStopping)
     await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, errorMsg)
-    if (!errorMsg) setPurchaseWaitingMode(false)
+    if (!errorMsg && !isStopping) setPurchaseWaitingMode(false)
   } catch (e) {
     hideProgress()
     addLogEntry('個握花費', totalNew, totalSkipped, e.message)
@@ -896,6 +924,7 @@ purchaseScrapeBtn.addEventListener('click', async () => {
   } finally {
     purchaseScrapeBtn.disabled    = false
     purchaseScrapeBtn.textContent = '開始抓取'
+    showStopBtn(false)
   }
 })
 
