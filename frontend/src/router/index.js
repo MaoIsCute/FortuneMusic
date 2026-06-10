@@ -12,6 +12,7 @@ const routes = [
   { path: '/spending', name: 'Spending', component: () => import('../views/SpendingView.vue') },
   { path: '/scrape', name: 'Scrape', component: () => import('../views/ScrapeView.vue') },
   { path: '/admin', name: 'Admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
+  { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
 ]
 
 const router = createRouter({
