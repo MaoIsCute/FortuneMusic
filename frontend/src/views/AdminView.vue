@@ -122,6 +122,51 @@
       </el-table>
     </el-card>
 
+    <!-- 簽名會紀錄 -->
+    <el-card class="section">
+      <template #header>
+        <span>簽名會紀錄</span>
+        <el-button style="float:right" size="small" @click="loadSignEvents">重新整理</el-button>
+      </template>
+      <div class="filter-row">
+        <el-select v-model="signFilter.userId" placeholder="篩選使用者" clearable style="width:200px" @change="signPage=1;loadSignEvents()">
+          <el-option v-for="u in users" :key="u.id" :label="`${u.name} (${u.email})`" :value="u.id" />
+        </el-select>
+        <el-input v-model="signFilter.member" placeholder="成員名稱" clearable style="width:150px" @change="signPage=1;loadSignEvents()" />
+        <el-input v-model="signFilter.singleNumber" placeholder="單曲號" clearable style="width:100px" type="number" @change="signPage=1;loadSignEvents()" />
+      </div>
+      <div v-if="signEvents.length === 0" class="empty">尚無簽名會紀錄</div>
+      <el-table v-else :data="signEvents" stripe>
+        <el-table-column label="使用者" width="140">
+          <template #default="{ row }">{{ row.user_name }}<br/><span class="sub-text">{{ row.user_email }}</span></template>
+        </el-table-column>
+        <el-table-column prop="member_name" label="成員" width="110" />
+        <el-table-column label="單曲" width="120">
+          <template #default="{ row }">{{ row.single_name || `第${row.single_number}單` }}</template>
+        </el-table-column>
+        <el-table-column prop="event_date" label="日期" width="120" />
+        <el-table-column label="抽次" width="70" align="center">
+          <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
+        </el-table-column>
+        <el-table-column prop="applied_count" label="應募" width="65" align="right" />
+        <el-table-column prop="won_count" label="中選" width="65" align="right" />
+        <el-table-column label="中選率" width="80" align="right">
+          <template #default="{ row }">
+            {{ row.applied_count > 0 ? (row.won_count / row.applied_count * 100).toFixed(1) + '%' : '—' }}
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-pagination
+        v-if="signTotal > signPageSize"
+        v-model:current-page="signPage"
+        :page-size="signPageSize"
+        :total="signTotal"
+        layout="prev, pager, next"
+        style="margin-top:12px;justify-content:flex-end;display:flex"
+        @current-change="loadSignEvents"
+      />
+    </el-card>
+
   </div>
 </template>
 
@@ -129,7 +174,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminTitleIssues, fixSingleTitle, getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, getAdminScrapeLogs } from '../api/index'
+import { getAdminTitleIssues, fixSingleTitle, getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, getAdminScrapeLogs, getAdminSignEvents } from '../api/index'
 import { useImpersonateStore } from '../stores/impersonate'
 import { useDataStore } from '../stores/data'
 
@@ -139,6 +184,11 @@ const dataStore = useDataStore()
 const users      = ref([])
 const issues     = ref([])
 const scrapeLogs = ref([])
+const signEvents  = ref([])
+const signTotal   = ref(0)
+const signPage    = ref(1)
+const signPageSize = 50
+const signFilter  = ref({ userId: null, member: '', singleNumber: '' })
 
 const del = ref({
   mode:         '',
@@ -236,10 +286,23 @@ async function loadScrapeLogs() {
   } catch {}
 }
 
+async function loadSignEvents() {
+  try {
+    const params = { page: signPage.value, page_size: signPageSize }
+    if (signFilter.value.userId) params.user_id = signFilter.value.userId
+    if (signFilter.value.member.trim()) params.member = signFilter.value.member.trim()
+    if (signFilter.value.singleNumber) params.single_number = signFilter.value.singleNumber
+    const res = await getAdminSignEvents(params)
+    signEvents.value = res.data.data ?? []
+    signTotal.value  = res.data.total ?? 0
+  } catch {}
+}
+
 onMounted(() => {
   loadUsers()
   loadIssues()
   loadScrapeLogs()
+  loadSignEvents()
 })
 </script>
 
@@ -250,4 +313,5 @@ onMounted(() => {
 .sub-text { font-size: 11px; color: #999; }
 .tag-ok    { color: #059669; font-size: 13px; }
 .tag-error { color: #dc2626; font-size: 13px; }
+.filter-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
 </style>

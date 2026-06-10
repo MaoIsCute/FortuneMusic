@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -174,6 +175,61 @@ func DeleteUserFullRecords(c *gin.Context) {
 	}
 	deleted := buildDeleteQuery(c, uint(targetID), &models.FullRecord{})
 	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
+}
+
+func GetAdminSignEvents(c *gin.Context) {
+	if !checkAdmin(c) {
+		return
+	}
+
+	page, pageSize := 1, 50
+	if p := c.Query("page"); p != "" {
+		fmt.Sscan(p, &page)
+	}
+	if ps := c.Query("page_size"); ps != "" {
+		fmt.Sscan(ps, &pageSize)
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	type SignEventRow struct {
+		ID           uint    `json:"id"`
+		UserID       uint    `json:"user_id"`
+		UserName     string  `json:"user_name"`
+		UserEmail    string  `json:"user_email"`
+		SingleNumber int     `json:"single_number"`
+		SingleName   string  `json:"single_name"`
+		EventDate    string  `json:"event_date"`
+		MemberName   string  `json:"member_name"`
+		AppliedCount int     `json:"applied_count"`
+		WonCount     int     `json:"won_count"`
+		LotteryRound float64 `json:"lottery_round"`
+	}
+
+	q := db.DB.Table("sign_events").
+		Select("sign_events.*, users.name as user_name, users.email as user_email").
+		Joins("LEFT JOIN users ON users.id = sign_events.user_id")
+
+	if uid := c.Query("user_id"); uid != "" {
+		q = q.Where("sign_events.user_id = ?", uid)
+	}
+	if m := c.Query("member"); m != "" {
+		q = q.Where("sign_events.member_name = ?", m)
+	}
+	if sn := c.Query("single_number"); sn != "" {
+		q = q.Where("sign_events.single_number = ?", sn)
+	}
+
+	var total int64
+	q.Count(&total)
+
+	var rows []SignEventRow
+	q.Order("sign_events.event_date DESC, sign_events.member_name ASC").
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Scan(&rows)
+
+	c.JSON(http.StatusOK, gin.H{"data": rows, "total": total})
 }
 
 func loadCorrectionMap() map[int]string {

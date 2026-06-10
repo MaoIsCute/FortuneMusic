@@ -96,10 +96,12 @@ func PushRecords(c *gin.Context) {
 		return
 	}
 
-	newRecords, skipped := 0, 0
 	now := time.Now()
 	corrections := loadCorrectionMap()
 
+	// 先過濾掉已存在的 source_url（在 transaction 外做，避免不必要的 rollback）
+	newRecords, skipped := 0, 0
+	var toInsert []models.Record
 	for _, r := range req.Records {
 		if r.SourceURL != "" {
 			var cnt int64
@@ -115,7 +117,7 @@ func PushRecords(c *gin.Context) {
 				singleName = corrected
 			}
 		}
-		rec := models.Record{
+		toInsert = append(toInsert, models.Record{
 			UserID:       user.ID,
 			OrderID:      extractOrderID(r.SourceURL),
 			SingleNumber: r.SingleNumber,
@@ -128,11 +130,21 @@ func PushRecords(c *gin.Context) {
 			WonCount:     r.WonCount,
 			SourceURL:    r.SourceURL,
 			ScrapedAt:    now,
+		})
+	}
+
+	// 用 transaction 確保同一批全成功或全回滾
+	if len(toInsert) > 0 {
+		tx := db.DB.Begin()
+		for _, rec := range toInsert {
+			if err := tx.Create(&rec).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "寫入失敗，請重試"})
+				return
+			}
+			newRecords++
 		}
-		if err := db.DB.Create(&rec).Error; err != nil {
-			continue
-		}
-		newRecords++
+		tx.Commit()
 	}
 
 	c.JSON(http.StatusOK, gin.H{

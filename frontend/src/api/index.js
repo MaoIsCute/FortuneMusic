@@ -84,5 +84,6 @@ export const getPurchaseOverallStats = () => api.get('/api/purchases/stats/overa
 export const getPurchaseStatsBySingle = () => api.get('/api/purchases/stats/by-single')
 export const getPurchaseStatsByMember = () => api.get('/api/purchases/stats/by-member')
 export const getAdminScrapeLogs = () => api.get('/api/admin/scrape-logs')
+export const getAdminSignEvents = (params = {}) => api.get('/api/admin/sign-events', { params })
 
 export default api

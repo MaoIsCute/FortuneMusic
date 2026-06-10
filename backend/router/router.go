@@ -53,6 +53,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/admin/title-issues", handlers.GetTitleIssues)
 		api.PUT("/admin/title", handlers.FixSingleTitle)
 		api.GET("/admin/scrape-logs", handlers.GetAdminScrapeLogs)
+		api.GET("/admin/sign-events", handlers.GetAdminSignEvents)
 		api.GET("/scrape-token", handlers.GetScrapeToken)
 		api.POST("/scrape", handlers.TriggerScrape)
 		api.GET("/records", handlers.GetRecords)
