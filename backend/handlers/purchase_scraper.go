@@ -110,7 +110,7 @@ func PushPurchases(c *gin.Context) {
 			ItemKey:      itemKey,
 			EntryID:      p.EntryID,
 			OrderNumber:  p.OrderNumber,
-			MemberName:   p.MemberName,
+			MemberName:   strings.ReplaceAll(p.MemberName, "　", ""),
 			EventDate:    p.EventDate,
 			Session:      p.Session,
 			SingleNumber: p.SingleNumber,

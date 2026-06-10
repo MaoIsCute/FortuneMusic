@@ -121,7 +121,7 @@ func PushRecords(c *gin.Context) {
 			SingleNumber: r.SingleNumber,
 			SingleName:   singleName,
 			LotteryRound: r.LotteryRound,
-			MemberName:   r.MemberName,
+			MemberName:   strings.ReplaceAll(r.MemberName, "　", ""),
 			EventDate:    r.EventDate,
 			Session:      r.Session,
 			AppliedCount: r.AppliedCount,
