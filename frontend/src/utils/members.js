@@ -103,12 +103,134 @@ export const MEMBERS = {
   '増田三莉音':           { gen: 6, active: true },
   '森平麗心':             { gen: 6, active: true },
   '矢田萌華':             { gen: 6, active: true },
+  // ── 櫻坂46 ──────────────────────────────────────────────
+  // 2期
+  '遠藤光莉':   { gen: 12, active: true },
+  '大園玲':     { gen: 12, active: true },
+  '大沼晶保':   { gen: 12, active: true },
+  '幸阪茉里乃': { gen: 12, active: true },
+  '田村保乃':   { gen: 12, active: true },
+  '藤吉夏鈴':   { gen: 12, active: true },
+  '増本綺良':   { gen: 12, active: true },
+  '松田里奈':   { gen: 12, active: true },
+  '森田ひかる': { gen: 12, active: true },
+  '守屋麗奈':   { gen: 12, active: true },
+  '山﨑天':     { gen: 12, active: true },
+  // 3期
+  '石森璃花':   { gen: 13, active: true },
+  '遠藤理子':   { gen: 13, active: true },
+  '小田倉麗奈': { gen: 13, active: true },
+  '小島凪紗':   { gen: 13, active: true },
+  '谷口愛季':   { gen: 13, active: true },
+  '中嶋優月':   { gen: 13, active: true },
+  '的野美青':   { gen: 13, active: true },
+  '向井純葉':   { gen: 13, active: true },
+  '村井優':     { gen: 13, active: true },
+  '村山美羽':   { gen: 13, active: true },
+  '山下瞳月':   { gen: 13, active: true },
+  // 4期
+  '浅井恋乃未': { gen: 14, active: true },
+  '稲熊ひな':   { gen: 14, active: true },
+  '勝又春':     { gen: 14, active: true },
+  '佐藤愛桜':   { gen: 14, active: true },
+  '中川智尋':   { gen: 14, active: true },
+  '松本和子':   { gen: 14, active: true },
+  '目黒陽色':   { gen: 14, active: true },
+  '山川宇衣':   { gen: 14, active: true },
+  '山田桃実':   { gen: 14, active: true },
+  // 畢業 1期
+  '鈴木泉帆':   { gen: 11, active: false },
+  '原田まゆ':   { gen: 11, active: false },
+  '今泉佑唯':   { gen: 11, active: false },
+  '志田愛佳':   { gen: 11, active: false },
+  '米谷奈々未': { gen: 11, active: false },
+  '長濱ねる':   { gen: 11, active: false },
+  '織田奈那':   { gen: 11, active: false },
+  '鈴本美愉':   { gen: 11, active: false },
+  '平手友梨奈': { gen: 11, active: false },
+  '長沢菜々香': { gen: 11, active: false },
+  '石森虹花':   { gen: 11, active: false },
+  '佐藤詩織':   { gen: 11, active: false },
+  '守屋茜':     { gen: 11, active: false },
+  '渡辺梨加':   { gen: 11, active: false },
+  '渡邉理佐':   { gen: 11, active: false },
+  '原田葵':     { gen: 11, active: false },
+  '尾関梨香':   { gen: 11, active: false },
+  '菅井友香':   { gen: 11, active: false },
+  '土生瑞穂':   { gen: 11, active: false },
+  '小林由依':   { gen: 11, active: false },
+  '齋藤冬優花': { gen: 11, active: false },
+  '上村莉菜':   { gen: 11, active: false },
+  '小池美波':   { gen: 11, active: false },
+  // 畢業 2期
+  '井上梨名':   { gen: 12, active: false },
+  '武元唯衣':   { gen: 12, active: false },
+  '松平璃子':   { gen: 12, active: false },
+  '関有美子':   { gen: 12, active: false },
+  // ── 日向坂46 ──────────────────────────────────────────────
+  // 2期
+  '金村美玖':   { gen: 22, active: true },
+  '小坂菜緒':   { gen: 22, active: true },
+  // 3期
+  '上村ひなの': { gen: 23, active: true },
+  '髙橋未来虹': { gen: 23, active: true },
+  '森本茉莉':   { gen: 23, active: true },
+  '山口陽世':   { gen: 23, active: true },
+  // 4期
+  '石塚瑶季':   { gen: 24, active: true },
+  '小西夏菜実': { gen: 24, active: true },
+  '清水理央':   { gen: 24, active: true },
+  '正源司陽子': { gen: 24, active: true },
+  '竹内希来里': { gen: 24, active: true },
+  '平尾帆夏':   { gen: 24, active: true },
+  '平岡海月':   { gen: 24, active: true },
+  '藤嶌果歩':   { gen: 24, active: true },
+  '宮地すみれ': { gen: 24, active: true },
+  '山下葉留花': { gen: 24, active: true },
+  '渡辺莉奈':   { gen: 24, active: true },
+  // 5期
+  '大田美月':   { gen: 25, active: true },
+  '大野愛実':   { gen: 25, active: true },
+  '片山紗希':   { gen: 25, active: true },
+  '蔵盛妃那乃': { gen: 25, active: true },
+  '坂井新奈':   { gen: 25, active: true },
+  '佐藤優羽':   { gen: 25, active: true },
+  '下田衣珠季': { gen: 25, active: true },
+  '高井俐香':   { gen: 25, active: true },
+  '鶴崎仁香':   { gen: 25, active: true },
+  '松尾桜':     { gen: 25, active: true },
+  // 畢業 1期
+  '柿崎芽実':   { gen: 21, active: false },
+  '井口眞緒':   { gen: 21, active: false },
+  '影山優佳':   { gen: 21, active: false },
+  '潮紗理菜':   { gen: 21, active: false },
+  '齊藤京子':   { gen: 21, active: false },
+  '高本彩花':   { gen: 21, active: false },
+  '加藤史帆':   { gen: 21, active: false },
+  '東村芽依':   { gen: 21, active: false },
+  '佐々木美玲': { gen: 21, active: false },
+  '佐々木久美': { gen: 21, active: false },
+  '高瀬愛奈':   { gen: 21, active: false },
+  // 畢業 2期
+  '濱岸ひより': { gen: 22, active: false },
+  '丹生明里':   { gen: 22, active: false },
+  '富田鈴花':   { gen: 22, active: false },
+  '河田陽菜':   { gen: 22, active: false },
+  '松田好花':   { gen: 22, active: false },
+  '渡邉美穂':   { gen: 22, active: false },
+  '宮田愛萌':   { gen: 22, active: false },
+  // 畢業 4期
+  '岸帆夏':     { gen: 24, active: false },
+}
+
+export function getMemberInfo(name) {
+  return MEMBERS[name] ?? MEMBERS[name.replace(/　/g, '')] ?? {}
 }
 
 export function sortMembersByGen(names) {
   return [...names].sort((a, b) => {
-    const ga = MEMBERS[a]?.gen ?? 99
-    const gb = MEMBERS[b]?.gen ?? 99
+    const ga = getMemberInfo(a).gen ?? 99
+    const gb = getMemberInfo(b).gen ?? 99
     if (ga !== gb) return ga - gb
     return a.localeCompare(b, 'ja')
   })

@@ -63,7 +63,7 @@
 
     <!-- 訂單序號 vs 中選率長條圖 -->
     <div class="chart-card">
-      <div class="chart-title">各張應募中選率</div>
+      <div class="chart-title">各筆應募中選率</div>
       <div class="chart-filters">
         <el-select v-model="seqFilterMember" placeholder="選擇成員" clearable size="small" @change="fetchSeqChart">
           <el-option v-for="m in allMembers" :key="m" :label="m" :value="m" />
@@ -81,6 +81,18 @@
 
     <!-- 成員列表控制列 -->
     <div class="member-list-header">
+      <el-select
+        v-model="filterMembers"
+        multiple
+        clearable
+        collapse-tags
+        collapse-tags-tooltip
+        placeholder="顯示特定成員（不選 = 全部）"
+        size="small"
+        class="member-filter-select"
+      >
+        <el-option v-for="m in allMembers" :key="m" :label="m" :value="m" />
+      </el-select>
       <button
         :class="['range-btn', { active: showActiveOnly }]"
         @click="showActiveOnly = !showActiveOnly"
@@ -186,7 +198,7 @@ import { useDataStore } from '../stores/data'
 import { detectExtension } from '../utils/extension'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
-import { MEMBERS, sortMembersByGen } from '../utils/members'
+import { getMemberInfo, sortMembersByGen } from '../utils/members'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -284,14 +296,19 @@ const memberMap = computed(() => {
 })
 
 const showActiveOnly = ref(false)
+const filterMembers  = ref([])
 
-// 成員依期別 → 五十音排序，可過濾只顯示在籍
+// 成員依期別 → 五十音排序，可過濾只顯示在籍 / 指定成員
 const sortedMembers = computed(() =>
   Object.entries(memberMap.value)
-    .filter(([name]) => !showActiveOnly.value || (MEMBERS[name]?.active ?? true))
+    .filter(([name]) => {
+      if (showActiveOnly.value && !(getMemberInfo(name).active ?? true)) return false
+      if (filterMembers.value.length && !filterMembers.value.includes(name)) return false
+      return true
+    })
     .sort(([a], [b]) => {
-      const ga = MEMBERS[a]?.gen ?? 99
-      const gb = MEMBERS[b]?.gen ?? 99
+      const ga = getMemberInfo(a).gen ?? 99
+      const gb = getMemberInfo(b).gen ?? 99
       if (ga !== gb) return ga - gb
       return a.localeCompare(b, 'ja')
     })
@@ -714,8 +731,13 @@ html.dark .empty-sub   { color: #9aa3b5; }
 /* 成員層 */
 .member-list-header {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 10px;
   margin-bottom: 8px;
+}
+.member-filter-select {
+  width: 260px;
 }
 .member-list { display: flex; flex-direction: column; gap: 12px; }
 
