@@ -134,7 +134,9 @@ func GoogleCallback(cfg *config.Config) gin.HandlerFunc {
 			// google_id 找不到，嘗試用 email 查（防止重複建立）
 			if emailErr := db.DB.Where("email = ?", gu.Email).First(&user).Error; emailErr != nil {
 				// 全新使用者，建立帳號
-				user = models.User{GoogleID: gu.ID, Email: gu.Email, Name: gu.Name}
+				b := make([]byte, 24)
+				rand.Read(b)
+				user = models.User{GoogleID: gu.ID, Email: gu.Email, Name: gu.Name, ScrapeToken: hex.EncodeToString(b)}
 				if createErr := db.DB.Create(&user).Error; createErr != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 					return
