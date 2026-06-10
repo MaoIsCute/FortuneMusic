@@ -25,7 +25,6 @@ func PushFullRecords(c *gin.Context) {
 		AppliedCount int     `json:"applied_count"`
 		WonCount     int     `json:"won_count"`
 		LotteryRound float64 `json:"lottery_round"`
-		SignEvent    bool    `json:"sign_event"`
 		SourceURL    string  `json:"source_url"`
 	}
 	var req struct {
@@ -47,7 +46,7 @@ func PushFullRecords(c *gin.Context) {
 	now := time.Now()
 
 	for _, r := range req.Records {
-		isSign := r.SignEvent || strings.Contains(r.OrderID, "_sign")
+		isSign := strings.Contains(r.OrderID, "_sign")
 
 		if isSign {
 			var existing models.SignEvent

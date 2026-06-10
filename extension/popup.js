@@ -487,7 +487,6 @@ function parseFullApiResults(results, singleNum, group) {
     const appliedCount = item.count || 0
     const wonCount = parseInt(item.resultInfo?.win || '0')
     const lotteryRound = parseLotteryRound(prizeInfo.times || '')
-    const isSign = (item.prizeId || '').includes('_sign') || (prizeInfo.event || '').includes('サイン')
 
     const orderId = `full:${group}_${singleNum}${suffix}:${item.prizeId}:${memberName}:${lotteryRound}`
     if (seen.has(orderId)) continue
@@ -505,7 +504,6 @@ function parseFullApiResults(results, singleNum, group) {
       applied_count: appliedCount,
       won_count:     wonCount,
       lottery_round: lotteryRound,
-      sign_event:    isSign,
       source_url:    '',
     })
   }
