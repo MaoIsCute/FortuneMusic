@@ -16,6 +16,7 @@ type FullRecord struct {
 	MemberName   string    `gorm:"not null" json:"member_name"`
 	AppliedCount int       `gorm:"not null" json:"applied_count"`
 	WonCount     int       `gorm:"not null" json:"won_count"`
+	LotteryRound float64   `json:"lottery_round"`
 	SourceURL    string    `json:"source_url"`
 	ScrapedAt    time.Time `json:"scraped_at"`
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"fortune-tracker/db"
@@ -13,17 +14,19 @@ import (
 
 func PushFullRecords(c *gin.Context) {
 	type FullPayload struct {
-		OrderID      string `json:"order_id"`
-		SingleNumber int    `json:"single_number"`
-		SingleName   string `json:"single_name"`
-		EventType    string `json:"event_type"`
-		Venue        string `json:"venue"`
-		EventDate    string `json:"event_date"`
-		Session      string `json:"session"`
-		MemberName   string `json:"member_name"`
-		AppliedCount int    `json:"applied_count"`
-		WonCount     int    `json:"won_count"`
-		SourceURL    string `json:"source_url"`
+		OrderID      string  `json:"order_id"`
+		SingleNumber int     `json:"single_number"`
+		SingleName   string  `json:"single_name"`
+		EventType    string  `json:"event_type"`
+		Venue        string  `json:"venue"`
+		EventDate    string  `json:"event_date"`
+		Session      string  `json:"session"`
+		MemberName   string  `json:"member_name"`
+		AppliedCount int     `json:"applied_count"`
+		WonCount     int     `json:"won_count"`
+		LotteryRound float64 `json:"lottery_round"`
+		SignEvent    bool    `json:"sign_event"`
+		SourceURL    string  `json:"source_url"`
 	}
 	var req struct {
 		ScrapeToken string        `json:"scrape_token" binding:"required"`
@@ -44,6 +47,33 @@ func PushFullRecords(c *gin.Context) {
 	now := time.Now()
 
 	for _, r := range req.Records {
+		isSign := r.SignEvent || strings.Contains(r.OrderID, "_sign")
+
+		if isSign {
+			var existing models.SignEvent
+			if db.DB.Where("user_id = ? AND order_id = ?", user.ID, r.OrderID).First(&existing).Error == nil {
+				skipped++
+				continue
+			}
+			ev := models.SignEvent{
+				UserID:       user.ID,
+				OrderID:      r.OrderID,
+				SingleNumber: r.SingleNumber,
+				SingleName:   r.SingleName,
+				EventDate:    r.EventDate,
+				MemberName:   r.MemberName,
+				AppliedCount: r.AppliedCount,
+				WonCount:     r.WonCount,
+				LotteryRound: r.LotteryRound,
+				ScrapedAt:    now,
+			}
+			if err := db.DB.Create(&ev).Error; err != nil {
+				continue
+			}
+			newRecords++
+			continue
+		}
+
 		var existing models.FullRecord
 		if db.DB.Where("user_id = ? AND order_id = ?", user.ID, r.OrderID).First(&existing).Error == nil {
 			skipped++
@@ -61,6 +91,7 @@ func PushFullRecords(c *gin.Context) {
 			MemberName:   r.MemberName,
 			AppliedCount: r.AppliedCount,
 			WonCount:     r.WonCount,
+			LotteryRound: r.LotteryRound,
 			SourceURL:    r.SourceURL,
 			ScrapedAt:    now,
 		}
@@ -100,6 +131,9 @@ func GetFullRecords(c *gin.Context) {
 	}
 	if sn := c.Query("single_number"); sn != "" {
 		query = query.Where("single_number = ?", sn)
+	}
+	if lr := c.Query("lottery_round"); lr != "" {
+		query = query.Where("lottery_round = ?", lr)
 	}
 
 	var total int64

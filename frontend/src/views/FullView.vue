@@ -62,9 +62,11 @@
           <el-option label="実体" value="実体" />
           <el-option label="線上" value="線上" />
         </el-select>
-        <el-select v-model="filterVenue" placeholder="場地" clearable @change="loadRecords">
-          <el-option label="東京" value="東京" />
-          <el-option label="地方" value="地方" />
+        <el-input v-model="filterVenue" placeholder="場地" clearable @change="loadRecords" style="width:120px" />
+        <el-select v-model="filterRound" placeholder="抽次" clearable @change="loadRecords" style="width:100px">
+          <el-option label="1抽" :value="1" />
+          <el-option label="1.5抽" :value="1.5" />
+          <el-option label="2抽" :value="2" />
         </el-select>
       </div>
       <el-table :data="records" stripe>
@@ -77,6 +79,9 @@
         <el-table-column prop="session" label="部數" width="70" />
         <el-table-column label="單曲" >
           <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
+        </el-table-column>
+        <el-table-column label="抽次" width="70">
+          <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
         </el-table-column>
         <el-table-column prop="applied_count" label="應募" width="60" />
         <el-table-column prop="won_count" label="中選" width="60" />
@@ -119,6 +124,7 @@ const pageSize = 50
 const filterMember = ref('')
 const filterType = ref('')
 const filterVenue = ref('')
+const filterRound = ref(null)
 
 const overallRate = computed(() => {
   if (!overall.value.total_applied) return '0.0'
@@ -147,6 +153,7 @@ async function fetchPage() {
   if (filterMember.value) params.member = filterMember.value
   if (filterType.value) params.event_type = filterType.value
   if (filterVenue.value) params.venue = filterVenue.value
+  if (filterRound.value !== null) params.lottery_round = filterRound.value
   const res = await getFullRecords(params)
   records.value = res.data.data ?? []
   total.value = res.data.total ?? 0

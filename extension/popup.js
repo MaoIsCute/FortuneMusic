@@ -10,6 +10,7 @@ const fullSyncBtn      = document.getElementById('fullSyncBtn')
 const fullScrapeBtn    = document.getElementById('fullScrapeBtn')
 const fullStartEl      = document.getElementById('fullStart')
 const fullEndEl        = document.getElementById('fullEnd')
+const fullGroupEl      = document.getElementById('fullGroup')
 const purchaseSyncBtn   = document.getElementById('purchaseSyncBtn')
 const purchaseScrapeBtn = document.getElementById('purchaseScrapeBtn')
 
@@ -426,192 +427,194 @@ scrapeBtn.addEventListener('click', async () => {
   }
 })
 
-// ─── 全握：注入 ticket.fortunemeets.app 的爬蟲函式 ─────────────────────────────
-// DOM 結構（實測）：
-//   div.result.win/lose
-//     div
-//       div.result-body
-//         span.tag.win/lose          → 当選 / 落選
-//         div > div                  → <p> 日期＠場地, <p> 第N部, <p> 成員名
-//       div.flex-shrink-0            → N枚（N口）
-async function scrapeFullPage(singleNum) {
-  function ordinalSuffix(n) {
-    const v = n % 100, d = n % 10
-    if (v >= 11 && v <= 13) return 'th'
-    return d === 1 ? 'st' : d === 2 ? 'nd' : d === 3 ? 'rd' : 'th'
-  }
-  function toHalf(s) {
-    return (s || '').replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
-  }
-  function classifyVenue(v) {
-    return /幕張|東京|Makuhari/i.test(v || '') ? '東京' : '地方'
-  }
+// ─── 全握：直接打 ticket-api.fortunemeets.app ───────────────────────────────
 
-  // SPA 渲染等待
-  const t0 = Date.now()
-  while (Date.now() - t0 < 12000) {
-    if (document.querySelector('div.result')) break
-    await new Promise(r => setTimeout(r, 400))
-  }
-  if (!document.querySelector('div.result')) {
-    return { records: [], empty: true }
-  }
+function ordinalSuffix(n) {
+  const v = n % 100, d = n % 10
+  if (v >= 11 && v <= 13) return 'th'
+  return d === 1 ? 'st' : d === 2 ? 'nd' : d === 3 ? 'rd' : 'th'
+}
 
-  const seenKeys = new Set()
-  const records  = []
+function parseLotteryRound(times) {
+  const m = (times || '').match(/(\d+)次/)
+  if (!m) return 1.0
+  const n = parseFloat(m[1])
+  return times.includes('保障') ? n + 0.5 : n
+}
 
-  document.querySelectorAll('div.result').forEach(row => {
-    const tag    = row.querySelector('span.tag')
-    if (!tag) return
-    const cls    = tag.className || ''
-    const text   = (tag.innerText || '').trim()
-    const isWon  = cls.includes('win')  || text.includes('当選')
-    const isLost = cls.includes('lose') || text.includes('落選')
-    if (!isWon && !isLost) return
-    const status = isWon ? '当選' : '落選'
+function parseFullApiResults(results, singleNum, group) {
+  const suffix = ordinalSuffix(singleNum)
+  const singleName = `${singleNum}${suffix}シングル`
+  const records = []
+  const seen = new Set()
 
-    // 找所有 <p>，依內容分類
-    const ps = Array.from(row.querySelectorAll('p')).map(p => toHalf((p.innerText || '').trim()))
-    let dateLine = '', session = '', memberName = ''
-    for (const text of ps) {
-      if (text.match(/\d{4}年\d{1,2}月\d{1,2}日/)) { dateLine = text; continue }
-      if (text.match(/第\d+部/))                     { session  = text; continue }
-      if (!memberName && text.length >= 2)           { memberName = text }
-    }
-    // session 有時包在 dateLine 裡（線上格式）
-    if (!session) {
-      const sm = dateLine.match(/(第\d+部)/)
-      if (sm) session = sm[1]
-    }
-
-    const dm = dateLine.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/)
-    if (!dm || !session || !memberName) return
-    const eventDate = `${parseInt(dm[1])}/${parseInt(dm[2])}/${parseInt(dm[3])}`
-
-    const atIdx     = dateLine.indexOf('@')
-    const venue     = atIdx >= 0 ? classifyVenue(dateLine.slice(atIdx + 1)) : ''
+  for (const item of results) {
+    const prizeInfo = item.prizeInfo || {}
+    const dateStr = prizeInfo.date || ''
+    const atIdx = dateStr.indexOf('＠')
     const eventType = atIdx >= 0 ? '実体' : '線上'
+    const venue = atIdx >= 0 ? dateStr.slice(atIdx + 1).trim() : ''
 
-    const countText = toHalf((row.querySelector('.flex-shrink-0')?.innerText || ''))
-    const cm        = countText.match(/(\d+)口/)
-    const count     = cm ? parseInt(cm[1]) : 1
+    const dm = dateStr.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/)
+    if (!dm) continue
+    const eventDate = `${dm[1]}/${parseInt(dm[2])}/${parseInt(dm[3])}`
 
-    const key = `${singleNum}:${eventType}:${venue}:${eventDate}:${session}:${memberName}:${status}`
-    if (seenKeys.has(key)) return
-    seenKeys.add(key)
+    const session = prizeInfo.part || ''
+    const memberName = ((prizeInfo.members || [])[0] || '').replace(/　/g, '')
+    if (!memberName || !session) continue
+
+    const appliedCount = item.count || 0
+    const wonCount = parseInt(item.resultInfo?.win || '0')
+    const lotteryRound = parseLotteryRound(prizeInfo.times || '')
+    const isSign = (item.prizeId || '').includes('_sign') || (prizeInfo.event || '').includes('サイン')
+
+    const orderId = `full:${group}_${singleNum}${suffix}:${item.prizeId}`
+    if (seen.has(orderId)) continue
+    seen.add(orderId)
 
     records.push({
-      order_id:      `full:${key}`,
+      order_id:      orderId,
       single_number: singleNum,
-      single_name:   `${singleNum}${ordinalSuffix(singleNum)}シングル`,
+      single_name:   singleName,
       event_type:    eventType,
       venue,
       event_date:    eventDate,
       session,
       member_name:   memberName,
-      applied_count: count,
-      won_count:     status === '当選' ? count : 0,
-      source_url:    window.location.href,
+      applied_count: appliedCount,
+      won_count:     wonCount,
+      lottery_round: lotteryRound,
+      sign_event:    isSign,
+      source_url:    '',
     })
-  })
-
-  return { records, empty: records.length === 0 }
+  }
+  return records
 }
 // ─────────────────────────────────────────────────────────────────────────────
+
+const FORTUNE_USER_ID_KEY = 'fortuneUserId'
 
 function setFullWaitingMode(on) {
   fullSyncBtn.style.display   = on ? 'none'  : 'block'
   fullScrapeBtn.style.display = on ? 'block' : 'none'
 }
 
-// 步驟一：開啟全握歷史頁
+// 步驟一：開啟 ticket.fortunemeets.app，讀取並儲存 lscache-id
 fullSyncBtn.addEventListener('click', async () => {
-  const startNum = parseInt(fullStartEl.value) || 41
-  const mod10 = startNum % 10, mod100 = startNum % 100
-  const suffix = (mod100 >= 11 && mod100 <= 13) ? 'th'
-    : mod10 === 1 ? 'st' : mod10 === 2 ? 'nd' : mod10 === 3 ? 'rd' : 'th'
-  await chrome.tabs.create({
-    url: `https://ticket.fortunemeets.app/nogizaka46/${startNum}${suffix}#/history`,
-    active: true,
+  const tabs = await chrome.tabs.query({ url: 'https://ticket.fortunemeets.app/*' })
+  let tabId
+  if (tabs.length > 0) {
+    tabId = tabs[0].id
+    await chrome.tabs.update(tabId, { active: true })
+  } else {
+    const tab = await chrome.tabs.create({ url: 'https://ticket.fortunemeets.app/', active: true })
+    tabId = tab.id
+    await new Promise(resolve => {
+      function onUpdated(id, info) {
+        if (id === tabId && info.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(onUpdated)
+          resolve()
+        }
+      }
+      chrome.tabs.onUpdated.addListener(onUpdated)
+      setTimeout(() => { chrome.tabs.onUpdated.removeListener(onUpdated); resolve() }, 8000)
+    })
+  }
+
+  const result = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const raw = localStorage.getItem('lscache-id')
+      return raw ? raw.replace(/"/g, '') : null
+    },
   })
+  const userId = result[0]?.result
+
+  if (!userId) {
+    showResult('error', '無法取得使用者 ID，請確認已登入 ticket.fortunemeets.app')
+    return
+  }
+
+  await chrome.storage.local.set({ [FORTUNE_USER_ID_KEY]: userId })
   setFullWaitingMode(true)
   showResult('info',
-    '已開啟全握歷史頁面。\n\n' +
-    '① 如未登入，請先登入\n' +
-    '② 確認可看到歷史記錄後\n' +
-    '③ 點「開始全握抓取」'
+    '已連線 ticket.fortunemeets.app。\n\n' +
+    '① 選擇團體與單曲範圍\n' +
+    '② 點「開始全握抓取」'
   )
 })
 
-// 步驟二：依序掃描各單曲歷史
+// 步驟二：直接打 API 抓取，不需要切換分頁
 fullScrapeBtn.addEventListener('click', async () => {
-  const { [BACKEND_KEY]: backendUrl, [TOKEN_KEY]: scrapeToken } =
-    await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
+  const stored = await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY, FORTUNE_USER_ID_KEY])
+  const backendUrl = stored[BACKEND_KEY]
+  const scrapeToken = stored[TOKEN_KEY]
+  const userId = stored[FORTUNE_USER_ID_KEY]
+
+  if (!userId) {
+    showResult('error', '尚未連線，請先點「全握同步」')
+    return
+  }
+
+  const group    = fullGroupEl.value || 'nogizaka46'
+  const startNum = parseInt(fullStartEl.value) || 1
+  const endNum   = parseInt(fullEndEl.value)   || 0
 
   fullScrapeBtn.disabled    = true
   fullScrapeBtn.textContent = '抓取中...'
 
-  const startNum = parseInt(fullStartEl.value) || 1
-  const endNum   = parseInt(fullEndEl.value)   || 0  // 0 = auto
-
-  let totalNew     = 0
-  let totalSkipped = 0
-  let emptyStreak  = 0
-  const MAX_EMPTY  = 3  // 連續 N 個空頁就停止自動掃
-
-  let errorMsg = ''
+  let totalNew = 0, totalSkipped = 0, emptyStreak = 0
+  const MAX_EMPTY    = 3
   const totalSingles = endNum > 0 ? endNum - startNum + 1 : 0
+  let errorMsg = ''
 
   try {
-    const tabs = await chrome.tabs.query({ url: 'https://ticket.fortunemeets.app/nogizaka46/*' })
-    if (tabs.length === 0) throw new Error('找不到 ticket.fortunemeets.app 分頁，請先點「全握同步」開啟頁面')
-    const tabId = tabs[0].id
-
     for (let n = startNum; ; n++) {
       if (endNum > 0 && n > endNum) break
 
-      const mod10 = n % 10, mod100 = n % 100
-      const suffix = (mod100 >= 11 && mod100 <= 13) ? 'th'
-        : mod10 === 1 ? 'st' : mod10 === 2 ? 'nd' : mod10 === 3 ? 'rd' : 'th'
-      const ordinal = `${n}${suffix}`
+      const suffix      = ordinalSuffix(n)
+      const artistEvent = `${group}_${n}${suffix}`
 
-      updateProgress('全握', n - startNum, totalSingles, `正在掃描第 ${ordinal} 單...　新增 ${totalNew} · 跳過 ${totalSkipped}`)
+      updateProgress('全握', n - startNum, totalSingles,
+        `正在抓取 ${artistEvent}... 新增 ${totalNew} · 跳過 ${totalSkipped}`)
 
-      await chrome.tabs.update(tabId, { url: `https://ticket.fortunemeets.app/nogizaka46/${ordinal}#/history` })
+      let apiRes
+      try {
+        apiRes = await fetch('https://ticket-api.fortunemeets.app/user/history2', {
+          headers: { 'x-user-id': userId, 'x-artist-event': artistEvent },
+        })
+      } catch (e) {
+        errorMsg = `網路錯誤：${e.message}`
+        break
+      }
 
-      await new Promise(resolve => {
-        function onUpdated(id, info) {
-          if (id === tabId && info.status === 'complete') {
-            chrome.tabs.onUpdated.removeListener(onUpdated)
-            resolve()
-          }
+      if (!apiRes.ok) {
+        if (apiRes.status === 401) {
+          await chrome.storage.local.remove(FORTUNE_USER_ID_KEY)
+          errorMsg = '登入已過期，請重新點「全握同步」'
+        } else {
+          errorMsg = `API 錯誤：${apiRes.status}`
         }
-        chrome.tabs.onUpdated.addListener(onUpdated)
-        setTimeout(() => { chrome.tabs.onUpdated.removeListener(onUpdated); resolve() }, 8000)
-      })
+        break
+      }
 
-      await new Promise(r => setTimeout(r, 800))
+      const data = await apiRes.json()
+      if (data.error) { errorMsg = data.message || 'API 錯誤'; break }
 
-      const result = await chrome.scripting.executeScript({
-        target: { tabId },
-        func:   scrapeFullPage,
-        args:   [n],
-      })
-      const data = result[0]?.result
-      if (!data) { errorMsg = `第 ${ordinal} 單：無法取得結果`; break }
-
-      if (data.empty) {
+      const results = data.results || []
+      if (results.length === 0) {
         emptyStreak++
         if (endNum === 0 && emptyStreak >= MAX_EMPTY) break
         continue
       }
       emptyStreak = 0
 
-      if (data.records.length > 0) {
+      const records = parseFullApiResults(results, n, group)
+      if (records.length > 0) {
         const pushRes = await fetch(`${backendUrl}/scrape/full/push`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ scrape_token: scrapeToken, records: data.records }),
+          body:    JSON.stringify({ scrape_token: scrapeToken, records }),
         })
         const pushJson = await pushRes.json()
         if (!pushRes.ok) { errorMsg = pushJson.error || '上傳失敗'; break }

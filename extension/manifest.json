@@ -20,6 +20,7 @@
   "host_permissions": [
     "https://fortunemusic.jp/*",
     "https://ticket.fortunemeets.app/*",
+    "https://ticket-api.fortunemeets.app/*",
     "http://localhost:8080/*",
     "https://fortunemusictracker.onrender.com/*"
   ],
