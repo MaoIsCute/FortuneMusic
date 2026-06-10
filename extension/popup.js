@@ -474,10 +474,7 @@ function parseFullApiResults(results, singleNum, group) {
     const dateStr = prizeInfo.date || ''
     const eventName = prizeInfo.event || ''
     const atIdx = dateStr.indexOf('＠')
-    let eventType
-    if (eventName.includes('オンライン')) eventType = '線上'
-    else if (eventName.includes('リアル') || atIdx >= 0) eventType = '実体'
-    else eventType = '線上'
+    const eventType = eventName.includes('リアル') ? '実体' : '線上'
     const venue = atIdx >= 0 ? dateStr.slice(atIdx + 1).trim() : ''
 
     const dm = dateStr.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/)
