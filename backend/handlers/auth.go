@@ -131,8 +131,18 @@ func GoogleCallback(cfg *config.Config) gin.HandlerFunc {
 
 		var user models.User
 		if err := db.DB.Where("google_id = ?", gu.ID).First(&user).Error; err != nil {
-			user = models.User{GoogleID: gu.ID, Email: gu.Email, Name: gu.Name}
-			db.DB.Create(&user)
+			// google_id 找不到，嘗試用 email 查（防止重複建立）
+			if emailErr := db.DB.Where("email = ?", gu.Email).First(&user).Error; emailErr != nil {
+				// 全新使用者，建立帳號
+				user = models.User{GoogleID: gu.ID, Email: gu.Email, Name: gu.Name}
+				if createErr := db.DB.Create(&user).Error; createErr != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
+					return
+				}
+			} else {
+				// email 已存在，更新 google_id
+				db.DB.Model(&user).Update("google_id", gu.ID)
+			}
 		}
 
 		claims := &middleware.Claims{
