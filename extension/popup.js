@@ -482,7 +482,7 @@ function parseFullApiResults(results, singleNum, group) {
 
     const session = prizeInfo.part || ''
     const memberName = ((prizeInfo.members || [])[0] || '').replace(/　/g, '')
-    if (!memberName || !session) continue
+    if (!memberName) continue
 
     const appliedCount = item.count || 0
     const wonCount = parseInt(item.resultInfo?.win || '0')
