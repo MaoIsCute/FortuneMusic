@@ -1,5 +1,6 @@
 ﻿<template>
-  <div :class="['app', themeStore.isDark ? 'dark' : '']">
+  <MaintenanceView v-if="maintenance" :message="maintenanceMsg" />
+  <div v-else :class="['app', themeStore.isDark ? 'dark' : '']">
     <ImpersonateBanner />
     <div :style="impersonate.user ? 'padding-top: 40px' : ''">
       <NavBar v-if="auth.isLoggedIn" />
@@ -11,9 +12,10 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import NavBar from './components/NavBar.vue'
 import ImpersonateBanner from './components/ImpersonateBanner.vue'
+import MaintenanceView from './views/MaintenanceView.vue'
 import { useThemeStore } from './stores/theme'
 import { useAuthStore } from './stores/auth'
 import { useImpersonateStore } from './stores/impersonate'
@@ -23,14 +25,29 @@ const themeStore = useThemeStore()
 const auth = useAuthStore()
 const impersonate = useImpersonateStore()
 
+const maintenance    = ref(false)
+const maintenanceMsg = ref('系統維護中，請稍後再試。')
+
+const STATUS_URL = import.meta.env.DEV
+  ? '/status.json'
+  : 'https://raw.githubusercontent.com/MaoIsCute/FortuneMusic/main/status.json'
+
 onMounted(async () => {
+  try {
+    const res = await fetch(STATUS_URL + '?t=' + Date.now())
+    const data = await res.json()
+    if (data.maintenance) {
+      maintenance.value    = true
+      maintenanceMsg.value = data.message || maintenanceMsg.value
+      return
+    }
+  } catch {}
+
   if (auth.isLoggedIn && !auth.user) {
     try {
       const res = await getMe()
       auth.setUser(res.data)
-    } catch {
-      // token 失效由 401 interceptor 處理
-    }
+    } catch {}
   }
 })
 </script>
