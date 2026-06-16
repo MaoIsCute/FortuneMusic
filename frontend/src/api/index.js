@@ -19,6 +19,7 @@ api.interceptors.request.use((config) => {
 
 let isRefreshing = false
 let networkErrorShown = false
+let pendingRequests = []
 
 api.interceptors.response.use(
   (res) => res,
@@ -30,19 +31,32 @@ api.interceptors.response.use(
     }
     const isAuthEndpoint = error.config?.url?.includes('/auth/')
     if (error.response?.status === 401 && !error.config._retry && !isAuthEndpoint) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          pendingRequests.push({ resolve, reject })
+        }).then(() => {
+          error.config.headers.Authorization = 'Bearer ' + localStorage.getItem('token')
+          return api(error.config)
+        })
+      }
+
+      error.config._retry = true
+      isRefreshing = true
       const rt = localStorage.getItem('refreshToken')
-      if (rt && !isRefreshing) {
-        error.config._retry = true
-        isRefreshing = true
+      if (rt) {
         try {
           const res = await api.post('/auth/refresh', { refresh_token: rt })
           const newToken = res.data.token
           const auth = useAuthStore()
           auth.setToken(newToken)
           error.config.headers.Authorization = 'Bearer ' + newToken
+          pendingRequests.forEach(p => p.resolve())
+          pendingRequests = []
           isRefreshing = false
           return api(error.config)
         } catch {
+          pendingRequests.forEach(p => p.reject())
+          pendingRequests = []
           isRefreshing = false
         }
       }

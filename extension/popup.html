@@ -28,10 +28,14 @@
       <div class="sub-label">抽選記錄</div>
       <button id="syncBtn"   class="btn primary">同步</button>
       <button id="scrapeBtn" class="btn success" style="display:none">開始抓取</button>
+      <button id="verifyBtn"  class="btn secondary">驗證完整性</button>
+      <button id="refetchBtn" class="btn warning"   style="display:none">補抓遺漏</button>
 
       <div class="sub-label">花費記錄</div>
-      <button id="purchaseSyncBtn"   class="btn primary">同步</button>
-      <button id="purchaseScrapeBtn" class="btn success" style="display:none">開始抓取</button>
+      <button id="purchaseSyncBtn"    class="btn primary">同步</button>
+      <button id="purchaseScrapeBtn"  class="btn success"    style="display:none">開始抓取</button>
+      <button id="verifyPurchaseBtn"  class="btn secondary">驗證完整性</button>
+      <button id="refetchPurchaseBtn" class="btn warning"    style="display:none">補抓遺漏</button>
     </div>
 
     <div class="section-divider"></div>
@@ -68,6 +72,7 @@
         <span id="progressPct" class="progress-pct">-</span>
       </div>
       <div id="progressDetail" class="progress-detail"></div>
+      <div id="progressTimer" class="progress-timer" style="display:none"></div>
     </div>
 
     <!-- 操作記錄 -->

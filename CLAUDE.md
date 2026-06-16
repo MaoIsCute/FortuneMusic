@@ -351,3 +351,9 @@ ADMIN_EMAIL=...
 29. 新增 title_corrections 對照表 → FixSingleTitle 修正後寫入 DB，GetTitleIssues 可優先顯示已知建議名稱；同時修正個握與購入兩張表
 30. /full 路由改為 redirect 至 /dashboard → FullView.vue 保留但不再獨立路由
 31. 擴充功能下載改為 GitHub URL → 從 Google Drive 改為 https://github.com/MaoIsCute/FortuneMusic/raw/main/FTExtension.zip
+32. Extension 抓取流量限制修正 → fortunemusic.jp 同時只允許 1 個請求；CONCURRENCY 改為 1，批次間 500ms；偵測「アクセスが集中」頁面自動等 4 秒重試；列表頁也加入限流偵測
+33. Extension 新增驗證完整性功能 → 個握與花費各新增「驗證完整性」按鈕：掃全部列表頁收集所有訂單/購入 ID，一次送 check-orders/check-entries 比對 DB，顯示缺漏數；缺漏時出現「補抓遺漏」按鈕補抓
+34. Extension 新增抓取計時器 → 抓取中 progressSection 即時顯示「已執行 MM:SS」；操作記錄顯示「耗時 MM:SS」
+35. ScrapeLog 新增 duration_sec 欄位 → 後端 model/handler 同步新增；AdminView 抓取記錄表格加「時長」欄位
+36. 修正 JWT 並發 401 race condition → 多個請求同時收到 401 時，只有第一個執行 refresh，其餘排隊等待（pendingRequests）；refresh 成功後全部重試，失敗才統一登出
+37. AdminView 名稱統一 → 刪除功能下拉「購入」改為「花費記錄」，與前端其他頁面用詞一致

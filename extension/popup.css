@@ -38,6 +38,10 @@ input:focus { border-color: #7c3aed; }
 .btn.primary:hover { background: #6d28d9; }
 .btn.success { background: #059669; color: white; }
 .btn.success:hover { background: #047857; }
+.btn.secondary { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+.btn.secondary:hover { background: #e5e7eb; }
+.btn.warning { background: #d97706; color: white; }
+.btn.warning:hover { background: #b45309; }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .hint { font-size: 12px; color: #888; }
@@ -137,6 +141,12 @@ input:focus { border-color: #7c3aed; }
   font-size: 11px;
   color: #555;
   line-height: 1.4;
+}
+.progress-timer {
+  font-size: 11px;
+  color: #6d28d9;
+  font-weight: 600;
+  text-align: right;
 }
 
 /* ── 操作記錄 ── */

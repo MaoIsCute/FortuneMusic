@@ -38,7 +38,7 @@
         <el-select v-model="del.recordType" style="width:100px">
           <el-option label="個握" value="records" />
           <el-option label="全握" value="full-records" />
-          <el-option label="購入" value="purchases" />
+          <el-option label="花費記錄" value="purchases" />
         </el-select>
 
         <el-select v-model="del.userId" placeholder="選擇使用者" style="width:200px" clearable>
@@ -113,6 +113,9 @@
         </el-table-column>
         <el-table-column label="新增" width="65" align="right" prop="new_count" />
         <el-table-column label="跳過" width="65" align="right" prop="skip_count" />
+        <el-table-column label="時長" width="75" align="right">
+          <template #default="{ row }">{{ row.duration_sec > 0 ? formatDuration(row.duration_sec) : '—' }}</template>
+        </el-table-column>
         <el-table-column label="狀態">
           <template #default="{ row }">
             <span v-if="row.error" class="tag-error">❌ {{ row.error }}</span>
@@ -232,7 +235,7 @@ async function execDelete() {
   if (!user) return
 
   const modeLabel = { all: '全部資料', single: `第 ${del.value.singleNumber} 單`, date: `${del.value.dateRange?.[0]} ～ ${del.value.dateRange?.[1]}` }
-  const typeLabel = { records: '個握', 'full-records': '全握', purchases: '購入' }[del.value.recordType] ?? '個握'
+  const typeLabel = { records: '個握', 'full-records': '全握', purchases: '花費記錄' }[del.value.recordType] ?? '個握'
 
   try {
     await ElMessageBox.confirm(
@@ -277,6 +280,12 @@ async function fix(row) {
   } finally {
     row._loading = false
   }
+}
+
+function formatDuration(sec) {
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return m > 0 ? `${m}m${s}s` : `${s}s`
 }
 
 async function loadScrapeLogs() {

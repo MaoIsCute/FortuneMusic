@@ -14,8 +14,14 @@ const fullGroupEl      = document.getElementById('fullGroup')
 const purchaseSyncBtn   = document.getElementById('purchaseSyncBtn')
 const purchaseScrapeBtn = document.getElementById('purchaseScrapeBtn')
 const stopBtn           = document.getElementById('stopBtn')
+const verifyBtn             = document.getElementById('verifyBtn')
+const refetchBtn            = document.getElementById('refetchBtn')
+const verifyPurchaseBtn     = document.getElementById('verifyPurchaseBtn')
+const refetchPurchaseBtn    = document.getElementById('refetchPurchaseBtn')
 
 let isStopping = false
+let verifyMissingEntries         = [] // [{id, info}] 個握驗證後缺漏的訂單
+let verifyPurchaseMissingEntries = [] // [{id, urlId, info}] 花費驗證後缺漏的記錄
 
 function showStopBtn(show) {
   stopBtn.style.display  = show ? 'inline-block' : 'none'
@@ -43,7 +49,9 @@ async function scrapeListPage(pageNum) {
       return { error: `第 ${pageNum} 頁讀取失敗：${e.message}` }
     }
     if (!res.ok) return { error: `第 ${pageNum} 頁回應錯誤：${res.status}` }
-    doc = new DOMParser().parseFromString(await res.text(), 'text/html')
+    const html = await res.text()
+    if (html.includes('アクセスが集中')) return { error: `第 ${pageNum} 頁：網站流量限制，請稍後再試` }
+    doc = new DOMParser().parseFromString(html, 'text/html')
   }
 
   const orders = []
@@ -99,7 +107,7 @@ async function scrapeListPage(pageNum) {
 // ─── 階段二：只抓新訂單的 detail page（4 個並行一批）──────────────────────────
 // entries = [{id, info}]（只傳新訂單進來）
 async function fetchOrderDetails(entries) {
-  const CONCURRENCY = 4
+  const CONCURRENCY = 1
   const itemRe = /^(.+?)【(\d{1,2}\/\d{1,2})\s+(第\d+部)】(.+)$/
 
   function parseProductName(text) {
@@ -130,11 +138,23 @@ async function fetchOrderDetails(entries) {
   const parser = new DOMParser()
 
   async function fetchSingleOrder({ id, info: applyInfo }) {
-    let res
-    try { res = await fetch(`/mypage/apply_detail/${id}/`) } catch { return [] }
-    if (!res.ok) return []
+    async function tryFetch() {
+      let res
+      try { res = await fetch(`/mypage/apply_detail/${id}/`) } catch { return null }
+      if (!res.ok) return null
+      const html = await res.text()
+      if (html.includes('アクセスが集中')) return null
+      return html
+    }
 
-    const detailDoc  = parser.parseFromString(await res.text(), 'text/html')
+    let html = await tryFetch()
+    if (html === null) {
+      await new Promise(r => setTimeout(r, 4000))
+      html = await tryFetch()
+    }
+    if (html === null) return []
+
+    const detailDoc  = parser.parseFromString(html, 'text/html')
     const sourceBase = `https://fortunemusic.jp/mypage/apply_detail/${id}/`
     const aggregated = {}
 
@@ -185,6 +205,7 @@ async function fetchOrderDetails(entries) {
     const batch = entries.slice(i, i + CONCURRENCY)
     const batchResults = await Promise.all(batch.map(fetchSingleOrder))
     batchResults.forEach(r => records.push(...r))
+    if (i + CONCURRENCY < entries.length) await new Promise(r => setTimeout(r, 500))
   }
 
   return { records }
@@ -235,7 +256,33 @@ const progressLabel   = document.getElementById('progressLabel')
 const progressBarFill = document.getElementById('progressBarFill')
 const progressPct     = document.getElementById('progressPct')
 const progressDetail  = document.getElementById('progressDetail')
+const progressTimer   = document.getElementById('progressTimer')
 const logList         = document.getElementById('logList')
+
+let timerInterval = null
+let timerStart    = null
+
+function formatElapsed(seconds) {
+  const m = String(Math.floor(seconds / 60)).padStart(2, '0')
+  const s = String(seconds % 60).padStart(2, '0')
+  return `${m}:${s}`
+}
+
+function startTimer() {
+  timerStart = Date.now()
+  progressTimer.style.display = 'block'
+  progressTimer.textContent = '已執行 00:00'
+  timerInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - timerStart) / 1000)
+    progressTimer.textContent = `已執行 ${formatElapsed(elapsed)}`
+  }, 1000)
+}
+
+function stopTimer() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null }
+  progressTimer.style.display = 'none'
+  return timerStart ? Math.floor((Date.now() - timerStart) / 1000) : 0
+}
 
 function updateProgress(label, current, total, detail) {
   progressSection.style.display = 'flex'
@@ -259,7 +306,7 @@ function hideProgress() {
   progressBarFill.style.width = '0%'
 }
 
-function addLogEntry(type, newCount, skipCount, errorMsg, stopped = false) {
+function addLogEntry(type, newCount, skipCount, errorMsg, stopped = false, elapsed = null) {
   const empty = logList.querySelector('.log-empty')
   if (empty) empty.remove()
 
@@ -270,10 +317,11 @@ function addLogEntry(type, newCount, skipCount, errorMsg, stopped = false) {
   const isEmpty   = !errorMsg && !stopped && newCount === 0 && skipCount === 0
   const cls  = isError ? 'error' : (isStopped || isEmpty) ? 'warning' : 'success'
   const icon = isError ? '❌' : (isStopped || isEmpty) ? '⚠️' : '✅'
+  const timeStr = elapsed !== null ? ` · 耗時 ${formatElapsed(elapsed)}` : ''
   const body = isError   ? errorMsg
-    : isStopped ? `已停止 · 新增 ${newCount} 筆${skipCount > 0 ? ' · 跳過 ' + skipCount : ''}`
-    : isEmpty   ? '無新資料'
-    : `新增 ${newCount} 筆${skipCount > 0 ? ' · 跳過 ' + skipCount : ''}`
+    : isStopped ? `已停止 · 新增 ${newCount} 筆${skipCount > 0 ? ' · 跳過 ' + skipCount : ''}${timeStr}`
+    : isEmpty   ? `無新資料${timeStr}`
+    : `新增 ${newCount} 筆${skipCount > 0 ? ' · 跳過 ' + skipCount : ''}${timeStr}`
 
   const el = document.createElement('div')
   el.className = 'log-entry ' + cls
@@ -283,26 +331,31 @@ function addLogEntry(type, newCount, skipCount, errorMsg, stopped = false) {
   logList.insertBefore(el, logList.firstChild)
 }
 
-async function pushScrapeLog(backendUrl, scrapeToken, type, newCount, skipCount, error) {
+async function pushScrapeLog(backendUrl, scrapeToken, type, newCount, skipCount, error, durationSec = 0) {
   if (!backendUrl || !scrapeToken) return
   try {
     await fetch(backendUrl + '/scrape/log', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scrape_token: scrapeToken, type, new_count: newCount, skip_count: skipCount, error: error || '' }),
+      body: JSON.stringify({ scrape_token: scrapeToken, type, new_count: newCount, skip_count: skipCount, error: error || '', duration_sec: durationSec }),
     })
   } catch {}
 }
 
 function showResult(type, message) {
-  // 保留給 sync 按鈕的提示訊息（顯示在 progressSection）
   progressSection.style.display = 'flex'
   progressBarFill.classList.remove('indeterminate')
-  progressBarFill.style.width = type === 'error' ? '100%' : '0%'
-  progressBarFill.style.background = type === 'error' ? '#dc2626' : '#7c3aed'
   progressPct.textContent = ''
-  progressLabel.textContent = type === 'error' ? '❌ 錯誤' : type === 'info' ? 'ℹ️ 提示' : '✅ 完成'
   progressDetail.textContent = message
+  const cfg = {
+    error:   { width: '100%', bg: '#dc2626', label: '❌ 錯誤' },
+    warning: { width: '100%', bg: '#d97706', label: '⚠️ 發現缺漏' },
+    success: { width: '100%', bg: '#059669', label: '✅ 完成' },
+    info:    { width: '0%',   bg: '#7c3aed', label: 'ℹ️ 提示' },
+  }[type] || { width: '0%', bg: '#7c3aed', label: 'ℹ️ 提示' }
+  progressBarFill.style.width = cfg.width
+  progressBarFill.style.background = cfg.bg
+  progressLabel.textContent = cfg.label
 }
 
 function setWaitingMode(on) {
@@ -348,6 +401,7 @@ scrapeBtn.addEventListener('click', async () => {
   scrapeBtn.textContent = '抓取中...'
   isStopping = false
   showStopBtn(true)
+  startTimer()
 
   let totalNew     = 0
   let totalSkipped = 0
@@ -433,14 +487,14 @@ scrapeBtn.addEventListener('click', async () => {
       page++
     }
 
-    hideProgress()
-    addLogEntry('個握抽選', totalNew, totalSkipped, errorMsg || null, isStopping)
-    await pushScrapeLog(backendUrl, scrapeToken, '個握抽選', totalNew, totalSkipped, errorMsg)
+    const elapsed = stopTimer(); hideProgress()
+    addLogEntry('個握抽選', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '個握抽選', totalNew, totalSkipped, errorMsg, elapsed)
     if (!errorMsg && !isStopping) setWaitingMode(false)
   } catch (e) {
-    hideProgress()
-    addLogEntry('個握抽選', totalNew, totalSkipped, e.message)
-    await pushScrapeLog(backendUrl, scrapeToken, '個握抽選', totalNew, totalSkipped, e.message)
+    const elapsed = stopTimer(); hideProgress()
+    addLogEntry('個握抽選', totalNew, totalSkipped, e.message, false, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '個握抽選', totalNew, totalSkipped, e.message, elapsed)
   } finally {
     scrapeBtn.disabled    = false
     scrapeBtn.textContent = '開始抓取'
@@ -584,6 +638,7 @@ fullScrapeBtn.addEventListener('click', async () => {
   fullScrapeBtn.textContent = '抓取中...'
   isStopping = false
   showStopBtn(true)
+  startTimer()
 
   let totalNew = 0, totalSkipped = 0, emptyStreak = 0
   const MAX_EMPTY    = 3
@@ -646,14 +701,14 @@ fullScrapeBtn.addEventListener('click', async () => {
       }
     }
 
-    hideProgress()
-    addLogEntry('全握', totalNew, totalSkipped, errorMsg || null, isStopping)
-    await pushScrapeLog(backendUrl, scrapeToken, '全握', totalNew, totalSkipped, errorMsg)
+    const elapsed = stopTimer(); hideProgress()
+    addLogEntry('全握', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '全握', totalNew, totalSkipped, errorMsg, elapsed)
     if (!errorMsg && !isStopping) setFullWaitingMode(false)
   } catch (e) {
-    hideProgress()
-    addLogEntry('全握', totalNew, totalSkipped, e.message)
-    await pushScrapeLog(backendUrl, scrapeToken, '全握', totalNew, totalSkipped, e.message)
+    const elapsed = stopTimer(); hideProgress()
+    addLogEntry('全握', totalNew, totalSkipped, e.message, false, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '全握', totalNew, totalSkipped, e.message, elapsed)
   } finally {
     fullScrapeBtn.disabled    = false
     fullScrapeBtn.textContent = '開始全握抓取'
@@ -855,6 +910,7 @@ purchaseScrapeBtn.addEventListener('click', async () => {
   purchaseScrapeBtn.textContent = '抓取中...'
   isStopping = false
   showStopBtn(true)
+  startTimer()
 
   let totalNew = 0, totalSkipped = 0, page = 1, errorMsg = ''
 
@@ -912,17 +968,323 @@ purchaseScrapeBtn.addEventListener('click', async () => {
       page++
     }
 
-    hideProgress()
-    addLogEntry('個握花費', totalNew, totalSkipped, errorMsg || null, isStopping)
-    await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, errorMsg)
+    const elapsed = stopTimer(); hideProgress()
+    addLogEntry('個握花費', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, errorMsg, elapsed)
     if (!errorMsg && !isStopping) setPurchaseWaitingMode(false)
   } catch (e) {
-    hideProgress()
-    addLogEntry('個握花費', totalNew, totalSkipped, e.message)
-    await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, e.message)
+    const elapsed = stopTimer(); hideProgress()
+    addLogEntry('個握花費', totalNew, totalSkipped, e.message, false, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, e.message, elapsed)
   } finally {
     purchaseScrapeBtn.disabled    = false
     purchaseScrapeBtn.textContent = '開始抓取'
+    showStopBtn(false)
+  }
+})
+
+// ─── 驗證完整性 ──────────────────────────────────────────────────────────────
+verifyBtn.addEventListener('click', async () => {
+  const { [BACKEND_KEY]: backendUrl, [TOKEN_KEY]: scrapeToken } =
+    await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
+
+  const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/apply_list/*' })
+  if (tabs.length === 0) {
+    await getOrOpenFortuneMusicTab('/mypage/apply_list/')
+    showResult('info', '已開啟申請列表頁面。\n確認已登入後，再點「驗證完整性」')
+    return
+  }
+
+  verifyBtn.disabled = true
+  refetchBtn.style.display = 'none'
+  verifyMissingEntries = []
+  isStopping = false
+  showStopBtn(true)
+
+  let page = 1
+  const allOrders = []
+  let errorMsg = ''
+
+  try {
+    while (true) {
+      if (isStopping) break
+      updateProgress('驗證完整性', 0, 0, `掃描第 ${page} 頁...（已找到 ${allOrders.length} 筆）`)
+
+      const listResult = await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func:   scrapeListPage,
+        args:   [page],
+      })
+      const listData = listResult[0]?.result
+      if (!listData)       { errorMsg = '掃描失敗，無法取得結果'; break }
+      if (listData.error)  { errorMsg = listData.error;           break }
+      if (!listData.hasMore) break
+
+      allOrders.push(...listData.orders)
+      page++
+    }
+
+    if (!errorMsg && !isStopping) {
+      updateProgress('驗證完整性', 0, 0, `比對 ${allOrders.length} 筆訂單...`)
+
+      const checkRes = await fetch(`${backendUrl}/scrape/check-orders`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ scrape_token: scrapeToken, order_ids: allOrders.map(o => o.id) }),
+      })
+      const checkJson = await checkRes.json()
+
+      if (!checkRes.ok) {
+        errorMsg = checkJson.error || '比對失敗'
+      } else {
+        const newSet = new Set(checkJson.new_order_ids || [])
+        verifyMissingEntries = allOrders.filter(o => newSet.has(o.id))
+        const missing = verifyMissingEntries.length
+        const total   = allOrders.length
+
+        hideProgress()
+        if (missing === 0) {
+          showResult('success', `網站共 ${total} 筆訂單，全數已在 DB 中 ✓`)
+        } else {
+          showResult('warning', `網站共 ${total} 筆 · DB 缺少 ${missing} 筆`)
+          refetchBtn.textContent  = `補抓遺漏 (${missing} 筆)`
+          refetchBtn.style.display = 'block'
+        }
+      }
+    }
+
+    if (isStopping) {
+      hideProgress()
+      showResult('info', `已停止，掃描到第 ${page} 頁（共 ${allOrders.length} 筆）`)
+    }
+    if (errorMsg) {
+      hideProgress()
+      showResult('error', errorMsg)
+    }
+  } catch (e) {
+    hideProgress()
+    showResult('error', e.message)
+  } finally {
+    verifyBtn.disabled = false
+    showStopBtn(false)
+  }
+})
+
+// ─── 補抓遺漏 ────────────────────────────────────────────────────────────────
+refetchBtn.addEventListener('click', async () => {
+  if (verifyMissingEntries.length === 0) return
+
+  const { [BACKEND_KEY]: backendUrl, [TOKEN_KEY]: scrapeToken } =
+    await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
+
+  const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/*' })
+  if (tabs.length === 0) {
+    showResult('error', '找不到 fortunemusic.jp 分頁，請先點「驗證完整性」開啟頁面')
+    return
+  }
+
+  refetchBtn.disabled = true
+  isStopping = false
+  showStopBtn(true)
+  startTimer()
+
+  const entries    = [...verifyMissingEntries]
+  const BATCH      = 4
+  let totalNew = 0, totalSkipped = 0, errorMsg = ''
+
+  try {
+    for (let i = 0; i < entries.length; i += BATCH) {
+      if (isStopping) break
+      const batch = entries.slice(i, i + BATCH)
+
+      updateProgress('補抓遺漏', i, entries.length,
+        `${i + 1}～${Math.min(i + BATCH, entries.length)} / ${entries.length} 筆`)
+
+      const detailResult = await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func:   fetchOrderDetails,
+        args:   [batch],
+      })
+      const detailData = detailResult[0]?.result
+      if (detailData?.records?.length > 0) {
+        const pushRes = await fetch(`${backendUrl}/scrape/push`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ scrape_token: scrapeToken, records: detailData.records }),
+        })
+        const pushJson = await pushRes.json()
+        if (!pushRes.ok) { errorMsg = pushJson.error || '上傳失敗'; break }
+        totalNew     += pushJson.new_records ?? 0
+        totalSkipped += pushJson.skipped     ?? 0
+      }
+    }
+
+    const elapsed = stopTimer(); hideProgress()
+    addLogEntry('補抓遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '補抓遺漏', totalNew, totalSkipped, errorMsg, elapsed)
+
+    if (!errorMsg && !isStopping) {
+      verifyMissingEntries    = []
+      refetchBtn.style.display = 'none'
+    }
+  } catch (e) {
+    const elapsed = stopTimer(); hideProgress()
+    addLogEntry('補抓遺漏', totalNew, totalSkipped, e.message, false, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '補抓遺漏', totalNew, totalSkipped, e.message, elapsed)
+  } finally {
+    refetchBtn.disabled     = false
+    refetchBtn.textContent  = `補抓遺漏 (${verifyMissingEntries.length} 筆)`
+    showStopBtn(false)
+  }
+})
+
+// ─── 花費記錄：驗證完整性 ────────────────────────────────────────────────────
+verifyPurchaseBtn.addEventListener('click', async () => {
+  const { [BACKEND_KEY]: backendUrl, [TOKEN_KEY]: scrapeToken } =
+    await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
+
+  const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/entry_list/*' })
+  if (tabs.length === 0) {
+    await getOrOpenFortuneMusicTab('/mypage/entry_list/')
+    showResult('info', '已開啟購入記錄頁面。\n確認已登入後，再點「驗證完整性」')
+    return
+  }
+
+  verifyPurchaseBtn.disabled = true
+  refetchPurchaseBtn.style.display = 'none'
+  verifyPurchaseMissingEntries = []
+  isStopping = false
+  showStopBtn(true)
+  startTimer()
+
+  let page = 1
+  const allEntries = []
+  let errorMsg = ''
+
+  try {
+    while (true) {
+      if (isStopping) break
+      updateProgress('驗證花費完整性', 0, 0, `掃描第 ${page} 頁...（已找到 ${allEntries.length} 筆）`)
+
+      const listResult = await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func:   scrapeEntryListPage,
+        args:   [page],
+      })
+      const listData = listResult[0]?.result
+      if (!listData)       { errorMsg = '掃描失敗，無法取得結果'; break }
+      if (listData.error)  { errorMsg = listData.error;           break }
+      if (!listData.hasMore) break
+
+      allEntries.push(...listData.entries)
+      page++
+    }
+
+    if (!errorMsg && !isStopping) {
+      updateProgress('驗證花費完整性', 0, 0, `比對 ${allEntries.length} 筆記錄...`)
+
+      const checkRes = await fetch(`${backendUrl}/scrape/check-entries`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ scrape_token: scrapeToken, entry_ids: allEntries.map(e => e.id) }),
+      })
+      const checkJson = await checkRes.json()
+
+      if (!checkRes.ok) {
+        errorMsg = checkJson.error || '比對失敗'
+      } else {
+        const newSet = new Set(checkJson.new_entry_ids || [])
+        verifyPurchaseMissingEntries = allEntries.filter(e => newSet.has(e.id))
+        const missing = verifyPurchaseMissingEntries.length
+        const total   = allEntries.length
+
+        stopTimer(); hideProgress()
+        if (missing === 0) {
+          showResult('success', `網站共 ${total} 筆購入記錄，全數已在 DB 中 ✓`)
+        } else {
+          showResult('warning', `網站共 ${total} 筆 · DB 缺少 ${missing} 筆`)
+          refetchPurchaseBtn.textContent   = `補抓遺漏 (${missing} 筆)`
+          refetchPurchaseBtn.style.display = 'block'
+        }
+        return
+      }
+    }
+
+    if (isStopping) { stopTimer(); hideProgress(); showResult('info', `已停止，掃描到第 ${page} 頁（共 ${allEntries.length} 筆）`) }
+    if (errorMsg)   { stopTimer(); hideProgress(); showResult('error', errorMsg) }
+  } catch (e) {
+    stopTimer(); hideProgress()
+    showResult('error', e.message)
+  } finally {
+    verifyPurchaseBtn.disabled = false
+    showStopBtn(false)
+  }
+})
+
+// ─── 花費記錄：補抓遺漏 ──────────────────────────────────────────────────────
+refetchPurchaseBtn.addEventListener('click', async () => {
+  if (verifyPurchaseMissingEntries.length === 0) return
+
+  const { [BACKEND_KEY]: backendUrl, [TOKEN_KEY]: scrapeToken } =
+    await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
+
+  const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/*' })
+  if (tabs.length === 0) {
+    showResult('error', '找不到 fortunemusic.jp 分頁，請先點「驗證完整性」開啟頁面')
+    return
+  }
+
+  refetchPurchaseBtn.disabled = true
+  isStopping = false
+  showStopBtn(true)
+  startTimer()
+
+  const entries = [...verifyPurchaseMissingEntries]
+  let totalNew = 0, totalSkipped = 0, errorMsg = ''
+
+  try {
+    for (let i = 0; i < entries.length; i++) {
+      if (isStopping) break
+
+      updateProgress('補抓花費遺漏', i, entries.length,
+        `${i + 1} / ${entries.length} 筆`)
+
+      const detailResult = await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func:   fetchEntryDetailItems,
+        args:   [[entries[i]]],
+      })
+      const detailData = detailResult[0]?.result
+      if (detailData?.purchases?.length > 0) {
+        const pushRes = await fetch(`${backendUrl}/scrape/purchases/push`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ scrape_token: scrapeToken, purchases: detailData.purchases }),
+        })
+        const pushJson = await pushRes.json()
+        if (!pushRes.ok) { errorMsg = pushJson.error || '上傳失敗'; break }
+        totalNew     += pushJson.new_purchases ?? 0
+        totalSkipped += pushJson.skipped       ?? 0
+      }
+
+      if (i + 1 < entries.length) await new Promise(r => setTimeout(r, 500))
+    }
+
+    const elapsed = stopTimer(); hideProgress()
+    addLogEntry('補抓花費遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '補抓花費遺漏', totalNew, totalSkipped, errorMsg)
+
+    if (!errorMsg && !isStopping) {
+      verifyPurchaseMissingEntries     = []
+      refetchPurchaseBtn.style.display = 'none'
+    }
+  } catch (e) {
+    const elapsed = stopTimer(); hideProgress()
+    addLogEntry('補抓花費遺漏', totalNew, totalSkipped, e.message, false, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '補抓花費遺漏', totalNew, totalSkipped, e.message)
+  } finally {
+    refetchPurchaseBtn.disabled    = false
+    refetchPurchaseBtn.textContent = `補抓遺漏 (${verifyPurchaseMissingEntries.length} 筆)`
     showStopBtn(false)
   }
 })
