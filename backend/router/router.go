@@ -68,6 +68,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/full/stats/overall", handlers.GetFullOverallStats)
 		api.GET("/full/stats/by-member", handlers.GetFullStatsByMember)
 		api.GET("/full/stats/by-single", handlers.GetFullStatsBySingle)
+		api.GET("/full/stats/detail", handlers.GetFullDetailStats)
 		api.GET("/purchases", handlers.GetPurchases)
 		api.GET("/purchases/tree", handlers.GetPurchaseTree)
 		api.GET("/purchases/stats/overall", handlers.GetPurchaseOverallStats)

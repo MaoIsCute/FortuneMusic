@@ -2,174 +2,170 @@
   <div class="page">
     <h1 class="page-title">🔧 管理</h1>
 
-    <!-- 使用者管理 -->
-    <el-card class="section">
-      <template #header>
-        <span>使用者管理</span>
-        <el-button style="float:right" size="small" @click="loadUsers">重新整理</el-button>
-      </template>
-      <el-table :data="users" stripe>
-        <el-table-column prop="email" label="Email" />
-        <el-table-column prop="name" label="名稱" width="120" />
-        <el-table-column prop="record_count" label="個握筆數" width="100" />
-        <el-table-column label="最後同步" width="160">
-          <template #default="{ row }">
-            {{ row.last_scraped ? row.last_scraped.replace('T', ' ').slice(0, 16) : '—' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="" width="100">
-          <template #default="{ row }">
-            <el-button type="primary" size="small" plain @click="viewAs(row)">模擬畫面</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+    <el-collapse v-model="openSections">
 
-    <!-- 刪除資料 -->
-    <el-card class="section">
-      <template #header><span>刪除資料</span></template>
-      <div class="delete-form">
-        <el-select v-model="del.mode" placeholder="選擇刪除方式" style="width:180px">
-          <el-option label="清除某人全部資料" value="all" />
-          <el-option label="清除特定單曲" value="single" />
-          <el-option label="清除特定日期範圍" value="date" />
-        </el-select>
-
-        <el-select v-model="del.recordType" style="width:100px">
-          <el-option label="個握" value="records" />
-          <el-option label="全握" value="full-records" />
-          <el-option label="花費記錄" value="purchases" />
-        </el-select>
-
-        <el-select v-model="del.userId" placeholder="選擇使用者" style="width:200px" clearable>
-          <el-option v-for="u in users" :key="u.id" :label="`${u.name} (${u.email})`" :value="u.id" />
-        </el-select>
-
-        <template v-if="del.mode === 'single'">
-          <el-input v-model="del.singleNumber" placeholder="單曲號 (如 41)" style="width:130px" type="number" />
+      <!-- 使用者管理 -->
+      <el-collapse-item name="users">
+        <template #title>
+          <span class="collapse-title">使用者管理</span>
+          <el-button size="small" style="margin-left:12px" @click.stop="loadUsers">重新整理</el-button>
         </template>
+        <el-table :data="users" stripe>
+          <el-table-column prop="email" label="Email" />
+          <el-table-column prop="name" label="名稱" width="120" />
+          <el-table-column prop="record_count" label="個握筆數" width="100" />
+          <el-table-column label="最後同步" width="160">
+            <template #default="{ row }">
+              {{ row.last_scraped ? row.last_scraped.replace('T', ' ').slice(0, 16) : '—' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="" width="100">
+            <template #default="{ row }">
+              <el-button type="primary" size="small" plain @click="viewAs(row)">模擬畫面</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-collapse-item>
 
-        <template v-if="del.mode === 'date'">
-          <el-date-picker
-            v-model="del.dateRange"
-            type="daterange"
-            range-separator="～"
-            start-placeholder="開始日期"
-            end-placeholder="結束日期"
-            format="YYYY/M/D"
-            value-format="YYYY/M/D"
-            style="width:260px"
-          />
+      <!-- 刪除資料 -->
+      <el-collapse-item name="delete">
+        <template #title><span class="collapse-title">刪除資料</span></template>
+        <div class="delete-form">
+          <el-select v-model="del.mode" placeholder="選擇刪除方式" style="width:180px">
+            <el-option label="清除某人全部資料" value="all" />
+            <el-option label="清除特定單曲" value="single" />
+            <el-option label="清除特定日期範圍" value="date" />
+          </el-select>
+          <el-select v-model="del.recordType" style="width:100px">
+            <el-option label="個握" value="records" />
+            <el-option label="全握" value="full-records" />
+            <el-option label="個握花費記錄" value="purchases" />
+          </el-select>
+          <el-select v-model="del.userId" placeholder="選擇使用者" style="width:200px" clearable>
+            <el-option v-for="u in users" :key="u.id" :label="`${u.name} (${u.email})`" :value="u.id" />
+          </el-select>
+          <template v-if="del.mode === 'single'">
+            <el-input v-model="del.singleNumber" placeholder="單曲號 (如 41)" style="width:130px" type="number" />
+          </template>
+          <template v-if="del.mode === 'date'">
+            <el-date-picker
+              v-model="del.dateRange"
+              type="daterange"
+              range-separator="～"
+              start-placeholder="開始日期"
+              end-placeholder="結束日期"
+              format="YYYY/M/D"
+              value-format="YYYY/M/D"
+              style="width:260px"
+            />
+          </template>
+          <el-button type="danger" :disabled="!del.userId || !del.mode" @click="execDelete">
+            確定刪除
+          </el-button>
+        </div>
+      </el-collapse-item>
+
+      <!-- タイトル未定 修正 -->
+      <el-collapse-item name="titles">
+        <template #title>
+          <span class="collapse-title">タイトル未定 修正</span>
+          <el-button size="small" style="margin-left:12px" @click.stop="loadIssues">重新整理</el-button>
         </template>
+        <div v-if="issues.length === 0" class="empty">目前沒有 タイトル未定 的紀錄</div>
+        <el-table v-else :data="issues" stripe>
+          <el-table-column label="單曲號" width="80">
+            <template #default="{ row }">{{ row.single_number }}</template>
+          </el-table-column>
+          <el-table-column prop="current_name" label="目前標題" />
+          <el-table-column label="筆數" width="70" prop="count" />
+          <el-table-column label="修正標題">
+            <template #default="{ row }">
+              <el-input v-model="row._input" size="small" placeholder="輸入正確標題" style="width:320px" />
+            </template>
+          </el-table-column>
+          <el-table-column label="" width="90">
+            <template #default="{ row }">
+              <el-button type="primary" size="small" :loading="row._loading" @click="fix(row)">修正</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-collapse-item>
 
-        <el-button type="danger" :disabled="!del.userId || !del.mode" @click="execDelete">
-          確定刪除
-        </el-button>
-      </div>
-    </el-card>
+      <!-- 抓取紀錄 -->
+      <el-collapse-item name="logs">
+        <template #title>
+          <span class="collapse-title">抓取紀錄</span>
+          <el-button size="small" style="margin-left:12px" @click.stop="loadScrapeLogs">重新整理</el-button>
+        </template>
+        <div v-if="scrapeLogs.length === 0" class="empty">尚無紀錄</div>
+        <el-table v-else :data="scrapeLogs" stripe>
+          <el-table-column label="使用者" width="140">
+            <template #default="{ row }">{{ row.user_name }}<br/><span class="sub-text">{{ row.user_email }}</span></template>
+          </el-table-column>
+          <el-table-column prop="type" label="類型" width="90" />
+          <el-table-column label="時間" width="140">
+            <template #default="{ row }">{{ row.created_at ? row.created_at.replace('T', ' ').slice(0, 16) : '—' }}</template>
+          </el-table-column>
+          <el-table-column label="新增" width="65" align="right" prop="new_count" />
+          <el-table-column label="跳過" width="65" align="right" prop="skip_count" />
+          <el-table-column label="時長" width="75" align="right">
+            <template #default="{ row }">{{ row.duration_sec > 0 ? formatDuration(row.duration_sec) : '—' }}</template>
+          </el-table-column>
+          <el-table-column label="狀態">
+            <template #default="{ row }">
+              <span v-if="row.error" class="tag-error">❌ {{ row.error }}</span>
+              <span v-else class="tag-ok">✅ 成功</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-collapse-item>
 
-    <!-- タイトル未定 修正（個握 + 購入） -->
-    <el-card class="section">
-      <template #header>
-        <span>タイトル未定 修正</span>
-        <el-button style="float:right" size="small" @click="loadIssues">重新整理</el-button>
-      </template>
+      <!-- 簽名會紀錄 -->
+      <el-collapse-item name="sign">
+        <template #title>
+          <span class="collapse-title">簽名會紀錄</span>
+          <el-button size="small" style="margin-left:12px" @click.stop="loadSignEvents">重新整理</el-button>
+        </template>
+        <div class="filter-row">
+          <el-select v-model="signFilter.userId" placeholder="篩選使用者" clearable style="width:200px" @change="signPage=1;loadSignEvents()">
+            <el-option v-for="u in users" :key="u.id" :label="`${u.name} (${u.email})`" :value="u.id" />
+          </el-select>
+          <el-input v-model="signFilter.member" placeholder="成員名稱" clearable style="width:150px" @change="signPage=1;loadSignEvents()" />
+          <el-input v-model="signFilter.singleNumber" placeholder="單曲號" clearable style="width:100px" type="number" @change="signPage=1;loadSignEvents()" />
+        </div>
+        <div v-if="signEvents.length === 0" class="empty">尚無簽名會紀錄</div>
+        <el-table v-else :data="signEvents" stripe>
+          <el-table-column label="使用者" width="140">
+            <template #default="{ row }">{{ row.user_name }}<br/><span class="sub-text">{{ row.user_email }}</span></template>
+          </el-table-column>
+          <el-table-column prop="member_name" label="成員" width="110" />
+          <el-table-column label="單曲" width="120">
+            <template #default="{ row }">{{ row.single_name || `第${row.single_number}單` }}</template>
+          </el-table-column>
+          <el-table-column prop="event_date" label="日期" width="120" />
+          <el-table-column label="抽次" width="70" align="center">
+            <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
+          </el-table-column>
+          <el-table-column prop="applied_count" label="應募" width="65" align="right" />
+          <el-table-column prop="won_count" label="中選" width="65" align="right" />
+          <el-table-column label="中選率" width="80" align="right">
+            <template #default="{ row }">
+              {{ row.applied_count > 0 ? (row.won_count / row.applied_count * 100).toFixed(1) + '%' : '—' }}
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-pagination
+          v-if="signTotal > signPageSize"
+          v-model:current-page="signPage"
+          :page-size="signPageSize"
+          :total="signTotal"
+          layout="prev, pager, next"
+          style="margin-top:12px;justify-content:flex-end;display:flex"
+          @current-change="loadSignEvents"
+        />
+      </el-collapse-item>
 
-      <div v-if="issues.length === 0" class="empty">目前沒有 タイトル未定 的紀錄</div>
-
-      <el-table v-else :data="issues" stripe>
-        <el-table-column label="單曲號" width="80">
-          <template #default="{ row }">{{ row.single_number }}</template>
-        </el-table-column>
-        <el-table-column prop="current_name" label="目前標題" />
-        <el-table-column label="筆數" width="70" prop="count" />
-        <el-table-column label="修正標題">
-          <template #default="{ row }">
-            <el-input v-model="row._input" size="small" placeholder="輸入正確標題" style="width: 320px" />
-          </template>
-        </el-table-column>
-        <el-table-column label="" width="90">
-          <template #default="{ row }">
-            <el-button type="primary" size="small" :loading="row._loading" @click="fix(row)">修正</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-
-    <!-- 抓取紀錄 -->
-    <el-card class="section">
-      <template #header>
-        <span>抓取紀錄</span>
-        <el-button style="float:right" size="small" @click="loadScrapeLogs">重新整理</el-button>
-      </template>
-      <div v-if="scrapeLogs.length === 0" class="empty">尚無紀錄</div>
-      <el-table v-else :data="scrapeLogs" stripe>
-        <el-table-column label="使用者" width="140">
-          <template #default="{ row }">{{ row.user_name }}<br/><span class="sub-text">{{ row.user_email }}</span></template>
-        </el-table-column>
-        <el-table-column prop="type" label="類型" width="90" />
-        <el-table-column label="時間" width="140">
-          <template #default="{ row }">{{ row.created_at ? row.created_at.replace('T', ' ').slice(0, 16) : '—' }}</template>
-        </el-table-column>
-        <el-table-column label="新增" width="65" align="right" prop="new_count" />
-        <el-table-column label="跳過" width="65" align="right" prop="skip_count" />
-        <el-table-column label="時長" width="75" align="right">
-          <template #default="{ row }">{{ row.duration_sec > 0 ? formatDuration(row.duration_sec) : '—' }}</template>
-        </el-table-column>
-        <el-table-column label="狀態">
-          <template #default="{ row }">
-            <span v-if="row.error" class="tag-error">❌ {{ row.error }}</span>
-            <span v-else class="tag-ok">✅ 成功</span>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-
-    <!-- 簽名會紀錄 -->
-    <el-card class="section">
-      <template #header>
-        <span>簽名會紀錄</span>
-        <el-button style="float:right" size="small" @click="loadSignEvents">重新整理</el-button>
-      </template>
-      <div class="filter-row">
-        <el-select v-model="signFilter.userId" placeholder="篩選使用者" clearable style="width:200px" @change="signPage=1;loadSignEvents()">
-          <el-option v-for="u in users" :key="u.id" :label="`${u.name} (${u.email})`" :value="u.id" />
-        </el-select>
-        <el-input v-model="signFilter.member" placeholder="成員名稱" clearable style="width:150px" @change="signPage=1;loadSignEvents()" />
-        <el-input v-model="signFilter.singleNumber" placeholder="單曲號" clearable style="width:100px" type="number" @change="signPage=1;loadSignEvents()" />
-      </div>
-      <div v-if="signEvents.length === 0" class="empty">尚無簽名會紀錄</div>
-      <el-table v-else :data="signEvents" stripe>
-        <el-table-column label="使用者" width="140">
-          <template #default="{ row }">{{ row.user_name }}<br/><span class="sub-text">{{ row.user_email }}</span></template>
-        </el-table-column>
-        <el-table-column prop="member_name" label="成員" width="110" />
-        <el-table-column label="單曲" width="120">
-          <template #default="{ row }">{{ row.single_name || `第${row.single_number}單` }}</template>
-        </el-table-column>
-        <el-table-column prop="event_date" label="日期" width="120" />
-        <el-table-column label="抽次" width="70" align="center">
-          <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
-        </el-table-column>
-        <el-table-column prop="applied_count" label="應募" width="65" align="right" />
-        <el-table-column prop="won_count" label="中選" width="65" align="right" />
-        <el-table-column label="中選率" width="80" align="right">
-          <template #default="{ row }">
-            {{ row.applied_count > 0 ? (row.won_count / row.applied_count * 100).toFixed(1) + '%' : '—' }}
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-pagination
-        v-if="signTotal > signPageSize"
-        v-model:current-page="signPage"
-        :page-size="signPageSize"
-        :total="signTotal"
-        layout="prev, pager, next"
-        style="margin-top:12px;justify-content:flex-end;display:flex"
-        @current-change="loadSignEvents"
-      />
-    </el-card>
-
+    </el-collapse>
   </div>
 </template>
 
@@ -184,6 +180,7 @@ import { useDataStore } from '../stores/data'
 const router = useRouter()
 const impersonateStore = useImpersonateStore()
 const dataStore = useDataStore()
+const openSections = ref(['users'])
 const users      = ref([])
 const issues     = ref([])
 const scrapeLogs = ref([])
@@ -235,7 +232,7 @@ async function execDelete() {
   if (!user) return
 
   const modeLabel = { all: '全部資料', single: `第 ${del.value.singleNumber} 單`, date: `${del.value.dateRange?.[0]} ～ ${del.value.dateRange?.[1]}` }
-  const typeLabel = { records: '個握', 'full-records': '全握', purchases: '花費記錄' }[del.value.recordType] ?? '個握'
+  const typeLabel = { records: '個握', 'full-records': '全握', purchases: '個握花費記錄' }[del.value.recordType] ?? '個握'
 
   try {
     await ElMessageBox.confirm(
@@ -316,7 +313,50 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.section { margin-bottom: 24px; }
+.page { background: #f5f7fa; min-height: 100vh; }
+
+:deep(.el-collapse) {
+  border: none;
+  background: transparent;
+}
+
+:deep(.el-collapse-item) {
+  margin-bottom: 12px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+  background: white;
+}
+
+:deep(.el-collapse-item__header) {
+  height: 52px;
+  padding: 0 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+  background: white;
+  border-bottom: 1px solid transparent;
+}
+
+:deep(.el-collapse-item.is-active .el-collapse-item__header) {
+  border-bottom-color: #e5e7eb;
+}
+
+:deep(.el-collapse-item__arrow) {
+  color: #6b7280;
+}
+
+:deep(.el-collapse-item__wrap) {
+  background: white;
+  border: none;
+}
+
+:deep(.el-collapse-item__content) {
+  padding: 16px 20px 20px;
+}
+
+.collapse-title { font-weight: 600; font-size: 14px; }
 .empty { color: #999; text-align: center; padding: 32px 0; }
 .delete-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .sub-text { font-size: 11px; color: #999; }

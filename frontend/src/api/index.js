@@ -92,6 +92,7 @@ export const getFullRecords = (params = {}) => api.get('/api/full/records', { pa
 export const getFullOverallStats = () => api.get('/api/full/stats/overall')
 export const getFullStatsByMember = () => api.get('/api/full/stats/by-member')
 export const getFullStatsBySingle = () => api.get('/api/full/stats/by-single')
+export const getFullDetailStats = (params = {}) => api.get('/api/full/stats/detail', { params })
 export const getPurchases = (params = {}) => api.get('/api/purchases', { params: { page_size: 50, ...params } })
 export const getPurchaseTree = () => api.get('/api/purchases/tree')
 export const getPurchaseOverallStats = () => api.get('/api/purchases/stats/overall')

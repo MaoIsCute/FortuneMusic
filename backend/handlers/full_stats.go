@@ -64,6 +64,35 @@ func GetFullStatsByMember(c *gin.Context) {
 	c.JSON(http.StatusOK, rows)
 }
 
+func GetFullDetailStats(c *gin.Context) {
+	userID := getUserID(c)
+
+	type Row struct {
+		SingleNumber int     `json:"single_number"`
+		SingleName   string  `json:"single_name"`
+		Session      string  `json:"session"`
+		LotteryRound float64 `json:"lottery_round"`
+		TotalApplied int     `json:"total_applied"`
+		TotalWon     int     `json:"total_won"`
+	}
+
+	query := db.DB.Model(&models.FullRecord{}).Where("user_id = ?", userID)
+	if m := c.Query("member"); m != "" {
+		query = query.Where("member_name LIKE ?", "%"+m+"%")
+	}
+	if v := c.Query("venue"); v != "" {
+		query = query.Where("venue = ?", v)
+	}
+
+	var rows []Row
+	query.Select("single_number, single_name, session, lottery_round, SUM(applied_count) as total_applied, SUM(won_count) as total_won").
+		Group("single_number, single_name, session, lottery_round").
+		Order("single_number ASC, session ASC, lottery_round ASC").
+		Scan(&rows)
+
+	c.JSON(http.StatusOK, rows)
+}
+
 func GetFullStatsBySingle(c *gin.Context) {
 	userID := getUserID(c)
 

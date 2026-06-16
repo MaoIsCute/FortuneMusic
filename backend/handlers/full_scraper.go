@@ -120,7 +120,7 @@ func GetFullRecords(c *gin.Context) {
 
 	query := db.DB.Model(&models.FullRecord{}).Where("user_id = ?", userID)
 	if m := c.Query("member"); m != "" {
-		query = query.Where("member_name = ?", m)
+		query = query.Where("member_name LIKE ?", "%"+m+"%")
 	}
 	if et := c.Query("event_type"); et != "" {
 		query = query.Where("event_type = ?", et)

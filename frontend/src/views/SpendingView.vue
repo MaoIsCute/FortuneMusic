@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <h1 class="page-title">💰 花費統計</h1>
+    <h1 class="page-title">💰 個握花費統計</h1>
 
     <template v-if="loaded">
     <ErrorState v-if="loadFailed" />
@@ -10,7 +10,7 @@
     <div class="stats-row">
       <el-card class="stat-card">
         <div class="stat-num">¥{{ overall.total_amount?.toLocaleString() ?? '—' }}</div>
-        <div class="stat-label">總花費</div>
+        <div class="stat-label">總個握花費</div>
       </el-card>
       <el-card class="stat-card">
         <div class="stat-num">{{ overall.total_quantity?.toLocaleString() ?? '—' }}</div>

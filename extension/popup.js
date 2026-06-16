@@ -119,17 +119,17 @@ async function fetchOrderDetails(entries) {
   function buildEventLabel(applyInfo, fallback) {
     if (applyInfo?.singleNum) {
       let s = `${applyInfo.singleNum}${applyInfo.singleSuffix}シングル`
-      if (applyInfo.singleTitle)  s += `「${applyInfo.singleTitle}」`
+      if (applyInfo.singleTitle)  s += `『${applyInfo.singleTitle}』`
       return s
     }
     if (applyInfo?.albumNum) {
       let s = `${applyInfo.albumNum}${applyInfo.albumSuffix}アルバム`
-      if (applyInfo.albumTitle)   s += `「${applyInfo.albumTitle}」`
+      if (applyInfo.albumTitle)   s += `『${applyInfo.albumTitle}』`
       return s
     }
     if (applyInfo?.isAlbum) {
       let s = 'アルバム'
-      if (applyInfo.albumTitle)   s += `「${applyInfo.albumTitle}」`
+      if (applyInfo.albumTitle)   s += `『${applyInfo.albumTitle}』`
       return s
     }
     return fallback
@@ -217,17 +217,17 @@ function buildSingleName(info) {
   if (!info) return null
   if (info.singleNum) {
     let s = `${info.singleNum}${info.singleSuffix}シングル`
-    if (info.singleTitle) s += `「${info.singleTitle}」`
+    if (info.singleTitle) s += `『${info.singleTitle}』`
     return s
   }
   if (info.albumNum) {
     let s = `${info.albumNum}${info.albumSuffix}アルバム`
-    if (info.albumTitle) s += `「${info.albumTitle}」`
+    if (info.albumTitle) s += `『${info.albumTitle}』`
     return s
   }
   if (info.isAlbum) {
     let s = 'アルバム'
-    if (info.albumTitle) s += `「${info.albumTitle}」`
+    if (info.albumTitle) s += `『${info.albumTitle}』`
     return s
   }
   return null
@@ -536,7 +536,8 @@ function parseFullApiResults(results, singleNum, group) {
     const eventDate = `${dm[1]}/${parseInt(dm[2])}/${parseInt(dm[3])}`
 
     const session = prizeInfo.part || ''
-    const memberName = ((prizeInfo.members || [])[0] || '').replace(/　/g, '')
+    const memberName = (prizeInfo.members || [])
+      .map(m => m.replace(/　/g, '').trim()).filter(Boolean).join('・')
     if (!memberName) continue
 
     const appliedCount = item.count || 0
@@ -575,13 +576,17 @@ function setFullWaitingMode(on) {
 
 // 步驟一：開啟 ticket.fortunemeets.app，讀取並儲存 lscache-id
 fullSyncBtn.addEventListener('click', async () => {
+  const group   = fullGroupEl.value || 'nogizaka46'
+  const openNum = parseInt(fullStartEl.value) || parseInt(fullEndEl.value) || 1
+  const openUrl = `https://ticket.fortunemeets.app/${group}/${openNum}${ordinalSuffix(openNum)}#/history`
+
   const tabs = await chrome.tabs.query({ url: 'https://ticket.fortunemeets.app/*' })
   let tabId
   if (tabs.length > 0) {
     tabId = tabs[0].id
-    await chrome.tabs.update(tabId, { active: true })
+    await chrome.tabs.update(tabId, { url: openUrl, active: true })
   } else {
-    const tab = await chrome.tabs.create({ url: 'https://ticket.fortunemeets.app/', active: true })
+    const tab = await chrome.tabs.create({ url: openUrl, active: true })
     tabId = tab.id
     await new Promise(resolve => {
       function onUpdated(id, info) {
@@ -598,14 +603,30 @@ fullSyncBtn.addEventListener('click', async () => {
   const result = await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
-      const raw = localStorage.getItem('lscache-id')
-      return raw ? raw.replace(/"/g, '') : null
+      const dump = (store) => {
+        const out = {}
+        for (let i = 0; i < store.length; i++) {
+          const k = store.key(i)
+          out[k] = store.getItem(k)
+        }
+        return out
+      }
+      return {
+        local:   dump(localStorage),
+        session: dump(sessionStorage),
+        cookie:  document.cookie,
+      }
     },
   })
-  const userId = result[0]?.result
+  const { local, session, cookie } = result[0]?.result ?? {}
+
+  const raw = local?.['lscache-id'] ?? session?.['lscache-id'] ?? null
+  const userId = raw ? raw.replace(/"/g, '') : null
 
   if (!userId) {
-    showResult('error', '無法取得使用者 ID，請確認已登入 ticket.fortunemeets.app')
+    const fmt = (obj) => Object.entries(obj ?? {}).map(([k, v]) => `${k}: ${String(v).slice(0, 80)}`).join('\n') || '（空）'
+    showResult('error',
+      `無法取得使用者 ID。\n\nlocalStorage:\n${fmt(local)}\n\nsessionStorage:\n${fmt(session)}\n\ncookie:\n${(cookie || '（空）').slice(0, 400)}`)
     return
   }
 
@@ -618,7 +639,7 @@ fullSyncBtn.addEventListener('click', async () => {
   )
 })
 
-// 步驟二：直接打 API 抓取，不需要切換分頁
+// 步驟二：透過 ticket.fortunemeets.app tab 執行 fetch（使用瀏覽器 session）
 fullScrapeBtn.addEventListener('click', async () => {
   const stored = await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY, FORTUNE_USER_ID_KEY])
   const backendUrl = stored[BACKEND_KEY]
@@ -629,6 +650,13 @@ fullScrapeBtn.addEventListener('click', async () => {
     showResult('error', '尚未連線，請先點「全握同步」')
     return
   }
+
+  const ticketTabs = await chrome.tabs.query({ url: 'https://ticket.fortunemeets.app/*' })
+  if (ticketTabs.length === 0) {
+    showResult('error', '請先點「全握同步」開啟 ticket.fortunemeets.app')
+    return
+  }
+  const tabId = ticketTabs[0].id
 
   const group    = fullGroupEl.value || 'nogizaka46'
   const startNum = parseInt(fullStartEl.value) || 1
@@ -656,27 +684,56 @@ fullScrapeBtn.addEventListener('click', async () => {
       updateProgress('全握', n - startNum, totalSingles,
         `正在抓取 ${artistEvent}... 新增 ${totalNew} · 跳過 ${totalSkipped}`)
 
-      let apiRes
+      let apiResult
       try {
-        apiRes = await fetch('https://ticket-api.fortunemeets.app/user/history2', {
-          headers: { 'x-user-id': userId, 'x-artist-event': artistEvent },
+        const execResult = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: async (uid, event) => {
+            try {
+              const res = await fetch('https://ticket-api.fortunemeets.app/user/history2', {
+                headers: { 'x-user-id': uid, 'x-artist-event': event },
+              })
+              const body = await res.text()
+              return { status: res.status, body }
+            } catch (e) {
+              return { status: 0, body: e.message }
+            }
+          },
+          args: [userId, artistEvent],
         })
+        apiResult = execResult[0]?.result
       } catch (e) {
-        errorMsg = `網路錯誤：${e.message}`
+        errorMsg = `腳本執行錯誤：${e.message}`
         break
       }
 
-      if (!apiRes.ok) {
-        if (apiRes.status === 401) {
-          await chrome.storage.local.remove(FORTUNE_USER_ID_KEY)
-          errorMsg = '登入已過期，請重新點「全握同步」'
-        } else {
-          errorMsg = `API 錯誤：${apiRes.status}`
+      if (!apiResult || apiResult.status === 0) {
+        errorMsg = `網路錯誤：${apiResult?.body ?? '未知'}`
+        break
+      }
+      if (apiResult.status === 401) {
+        await chrome.storage.local.remove(FORTUNE_USER_ID_KEY)
+        errorMsg = '登入已過期，請重新點「全握同步」'
+        break
+      }
+      if (apiResult.status === 500) {
+        let parsed = null
+        try { parsed = JSON.parse(apiResult.body) } catch {}
+        if (parsed?.error === 'InternalFailureException') {
+          emptyStreak++
+          if (endNum === 0 && emptyStreak >= MAX_EMPTY) break
+          continue
         }
+        errorMsg = `API 錯誤：500（${artistEvent}）\n${apiResult.body.slice(0, 200)}`
+        break
+      }
+      if (apiResult.status !== 200) {
+        errorMsg = `API 錯誤：${apiResult.status}（${artistEvent}）\n${apiResult.body.slice(0, 200)}`
         break
       }
 
-      const data = await apiRes.json()
+      let data
+      try { data = JSON.parse(apiResult.body) } catch { errorMsg = 'JSON 解析失敗'; break }
       if (data.error) { errorMsg = data.message || 'API 錯誤'; break }
 
       const results = data.results || []
@@ -1164,7 +1221,7 @@ verifyPurchaseBtn.addEventListener('click', async () => {
   try {
     while (true) {
       if (isStopping) break
-      updateProgress('驗證花費完整性', 0, 0, `掃描第 ${page} 頁...（已找到 ${allEntries.length} 筆）`)
+      updateProgress('驗證個握花費完整性', 0, 0, `掃描第 ${page} 頁...（已找到 ${allEntries.length} 筆）`)
 
       const listResult = await chrome.scripting.executeScript({
         target: { tabId: tabs[0].id },
@@ -1181,7 +1238,7 @@ verifyPurchaseBtn.addEventListener('click', async () => {
     }
 
     if (!errorMsg && !isStopping) {
-      updateProgress('驗證花費完整性', 0, 0, `比對 ${allEntries.length} 筆記錄...`)
+      updateProgress('驗證個握花費完整性', 0, 0, `比對 ${allEntries.length} 筆記錄...`)
 
       const checkRes = await fetch(`${backendUrl}/scrape/check-entries`, {
         method:  'POST',
@@ -1246,7 +1303,7 @@ refetchPurchaseBtn.addEventListener('click', async () => {
     for (let i = 0; i < entries.length; i++) {
       if (isStopping) break
 
-      updateProgress('補抓花費遺漏', i, entries.length,
+      updateProgress('補抓個握花費遺漏', i, entries.length,
         `${i + 1} / ${entries.length} 筆`)
 
       const detailResult = await chrome.scripting.executeScript({
@@ -1271,8 +1328,8 @@ refetchPurchaseBtn.addEventListener('click', async () => {
     }
 
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('補抓花費遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
-    await pushScrapeLog(backendUrl, scrapeToken, '補抓花費遺漏', totalNew, totalSkipped, errorMsg)
+    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '補抓個握花費遺漏', totalNew, totalSkipped, errorMsg)
 
     if (!errorMsg && !isStopping) {
       verifyPurchaseMissingEntries     = []
@@ -1280,8 +1337,8 @@ refetchPurchaseBtn.addEventListener('click', async () => {
     }
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('補抓花費遺漏', totalNew, totalSkipped, e.message, false, elapsed)
-    await pushScrapeLog(backendUrl, scrapeToken, '補抓花費遺漏', totalNew, totalSkipped, e.message)
+    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, e.message, false, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '補抓個握花費遺漏', totalNew, totalSkipped, e.message)
   } finally {
     refetchPurchaseBtn.disabled    = false
     refetchPurchaseBtn.textContent = `補抓遺漏 (${verifyPurchaseMissingEntries.length} 筆)`

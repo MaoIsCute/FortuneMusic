@@ -357,3 +357,12 @@ ADMIN_EMAIL=...
 35. ScrapeLog 新增 duration_sec 欄位 → 後端 model/handler 同步新增；AdminView 抓取記錄表格加「時長」欄位
 36. 修正 JWT 並發 401 race condition → 多個請求同時收到 401 時，只有第一個執行 refresh，其餘排隊等待（pendingRequests）；refresh 成功後全部重試，失敗才統一登出
 37. AdminView 名稱統一 → 刪除功能下拉「購入」改為「花費記錄」，與前端其他頁面用詞一致
+38. 全握同步 URL 改為起始單頁面 → fullSyncBtn 改為開啟 ticket.fortunemeets.app/{group}/{N}{suffix}#/history，優先用起始單、次選結束單、預設 1；解決 lscache-id 在首頁讀不到的問題
+39. 全握抓取改用 executeScript → fullScrapeBtn 改為在 ticket.fortunemeets.app tab 內執行 fetch，使用瀏覽器 session cookie；InternalFailureException 500 視為無資料繼續，不中止
+40. 全握成員多人支援 → parseFullApiResults 改為 members 陣列全部 join「・」；GetFullRecords 篩選改為 LIKE '%name%'；FullView memberList 拆「・」去重
+41. FullView 新增場地/單曲下拉篩選 → 場地從 byType 動態提取，單曲呼叫 getFullStatsBySingle；選「線上」時場地自動清空並 disabled
+42. FullView 詳細紀錄改版 → 結果欄改為中選數+中選率並存，中選率套用 rateClass 三段顏色
+43. AdminView 與 FullView 改為折疊式面板 → 使用 el-collapse，各區塊可展開/收合；背景灰色（#f5f7fa），卡片白色圓角陰影
+44. 全站「花費」改為「個握花費」→ NavBar、SpendingView、AdminView、popup.html、popup.js 共 11 處統一更名
+45. 全握新增成員詳細分析 → 後端 GET /api/full/stats/detail（group by member/venue/single/session/round）；前端選成員+場地，勾選抽次，表格動態生成欄位（部數×抽次），格內顯示中選率與中/應數
+46. Supabase 連線字串更新 → 舊格式 db.xxx.supabase.co 已失效，改為新 pooler 格式 aws-1-ap-northeast-1.pooler.supabase.com:5432
