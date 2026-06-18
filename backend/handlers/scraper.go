@@ -71,6 +71,7 @@ func PublicScrape(c *gin.Context) {
 // 不需要後端自己發 HTTP 請求，完全繞過伺服器 IP 封鎖問題。
 func PushRecords(c *gin.Context) {
 	type RecordPayload struct {
+		Group        string `json:"group"`
 		MemberName   string `json:"member_name"`
 		SingleNumber int    `json:"single_number"`
 		SingleName   string `json:"single_name"`
@@ -120,6 +121,7 @@ func PushRecords(c *gin.Context) {
 		toInsert = append(toInsert, models.Record{
 			UserID:       user.ID,
 			OrderID:      extractOrderID(r.SourceURL),
+			Group:        r.Group,
 			SingleNumber: r.SingleNumber,
 			SingleName:   singleName,
 			LotteryRound: r.LotteryRound,

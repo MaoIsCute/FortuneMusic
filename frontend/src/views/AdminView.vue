@@ -30,39 +30,108 @@
       <!-- 刪除資料 -->
       <el-collapse-item name="delete">
         <template #title><span class="collapse-title">刪除資料</span></template>
+
         <div class="delete-form">
-          <el-select v-model="del.mode" placeholder="選擇刪除方式" style="width:180px">
-            <el-option label="清除某人全部資料" value="all" />
-            <el-option label="清除特定單曲" value="single" />
-            <el-option label="清除特定日期範圍" value="date" />
-          </el-select>
-          <el-select v-model="del.recordType" style="width:100px">
+          <el-select v-model="del.recordType" style="width:120px" @change="clearPreview">
             <el-option label="個握" value="records" />
             <el-option label="全握" value="full-records" />
-            <el-option label="個握花費記錄" value="purchases" />
+            <el-option label="個握花費" value="purchases" />
           </el-select>
-          <el-select v-model="del.userId" placeholder="選擇使用者" style="width:200px" clearable>
+          <el-select v-model="del.userId" placeholder="選擇使用者" style="width:200px" clearable @change="clearPreview">
             <el-option v-for="u in users" :key="u.id" :label="`${u.name} (${u.email})`" :value="u.id" />
           </el-select>
-          <template v-if="del.mode === 'single'">
-            <el-input v-model="del.singleNumber" placeholder="單曲號 (如 41)" style="width:130px" type="number" />
-          </template>
-          <template v-if="del.mode === 'date'">
-            <el-date-picker
-              v-model="del.dateRange"
-              type="daterange"
-              range-separator="～"
-              start-placeholder="開始日期"
-              end-placeholder="結束日期"
-              format="YYYY/M/D"
-              value-format="YYYY/M/D"
-              style="width:260px"
-            />
-          </template>
-          <el-button type="danger" :disabled="!del.userId || !del.mode" @click="execDelete">
-            確定刪除
-          </el-button>
+          <el-select v-if="del.recordType !== 'purchases'" v-model="del.group" placeholder="團體（全部）" clearable style="width:120px" @change="clearPreview">
+            <el-option label="乃木坂46" value="nogizaka46" />
+            <el-option label="櫻坂46" value="sakurazaka46" />
+            <el-option label="日向坂46" value="hinatazaka46" />
+          </el-select>
+          <el-select v-model="del.mode" style="width:140px" @change="clearPreview">
+            <el-option label="全部" value="all" />
+            <el-option label="指定單曲" value="single" />
+            <el-option label="指定日期範圍" value="date" />
+          </el-select>
+          <el-input v-if="del.mode === 'single'" v-model="del.singleNumber" placeholder="單曲號" style="width:100px" type="number" @change="clearPreview" />
+          <el-date-picker
+            v-if="del.mode === 'date'"
+            v-model="del.dateRange"
+            type="daterange"
+            range-separator="～"
+            start-placeholder="開始日期"
+            end-placeholder="結束日期"
+            format="YYYY/M/D"
+            value-format="YYYY/M/D"
+            style="width:260px"
+            @change="clearPreview"
+          />
+          <el-button :disabled="!del.userId" :loading="previewLoading" @click="queryPreview">查詢</el-button>
         </div>
+
+        <!-- 查詢結果 -->
+        <template v-if="previewExecuted">
+          <div v-if="previewTotal === 0" class="empty">查無符合資料</div>
+          <template v-else>
+            <div class="preview-header">共 <b>{{ previewTotal }}</b> 筆符合條件</div>
+
+            <!-- 個握 -->
+            <el-table v-if="del.recordType === 'records'" :data="previewData" stripe size="small" max-height="400">
+              <el-table-column prop="member_name" label="成員" width="120" />
+              <el-table-column label="單曲" width="70">
+                <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
+              </el-table-column>
+              <el-table-column prop="event_date" label="日期" width="100" />
+              <el-table-column prop="session" label="部數" width="80" />
+              <el-table-column label="抽次" width="70">
+                <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
+              </el-table-column>
+              <el-table-column prop="applied_count" label="應募" width="60" align="right" />
+              <el-table-column prop="won_count" label="中選" width="60" align="right" />
+            </el-table>
+
+            <!-- 全握 -->
+            <el-table v-else-if="del.recordType === 'full-records'" :data="previewData" stripe size="small" max-height="400">
+              <el-table-column prop="member_name" label="成員" width="130" />
+              <el-table-column prop="event_type" label="類型" width="65" />
+              <el-table-column label="場地" width="150">
+                <template #default="{ row }"><span style="white-space:nowrap">{{ row.venue || '—' }}</span></template>
+              </el-table-column>
+              <el-table-column prop="event_date" label="日期" width="100" />
+              <el-table-column prop="session" label="部數" width="80" />
+              <el-table-column label="單曲" width="70">
+                <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
+              </el-table-column>
+              <el-table-column prop="applied_count" label="應募" width="60" align="right" />
+              <el-table-column prop="won_count" label="中選" width="60" align="right" />
+            </el-table>
+
+            <!-- 個握花費 -->
+            <el-table v-else :data="previewData" stripe size="small" max-height="400">
+              <el-table-column prop="member_name" label="成員" width="120" />
+              <el-table-column label="單曲" width="70">
+                <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
+              </el-table-column>
+              <el-table-column prop="event_date" label="日期" width="100" />
+              <el-table-column prop="session" label="部數" width="80" />
+              <el-table-column prop="unit_price" label="單價" width="80" align="right" />
+              <el-table-column prop="quantity" label="數量" width="60" align="right" />
+              <el-table-column prop="subtotal" label="小計" width="80" align="right" />
+            </el-table>
+
+            <el-pagination
+              v-if="previewTotal > 50"
+              v-model:current-page="previewPage"
+              :page-size="50"
+              :total="previewTotal"
+              layout="prev, pager, next"
+              style="margin-top:12px;display:flex;justify-content:flex-end"
+              @current-change="loadPreviewPage"
+            />
+
+            <div class="delete-action">
+              <el-button type="danger" @click="execDelete">刪除這 {{ previewTotal }} 筆</el-button>
+            </div>
+          </template>
+        </template>
+
       </el-collapse-item>
 
       <!-- タイトル未定 修正 -->
@@ -139,18 +208,21 @@
             <template #default="{ row }">{{ row.user_name }}<br/><span class="sub-text">{{ row.user_email }}</span></template>
           </el-table-column>
           <el-table-column prop="member_name" label="成員" width="110" />
-          <el-table-column label="單曲" width="120">
-            <template #default="{ row }">{{ row.single_name || `第${row.single_number}單` }}</template>
+          <el-table-column label="單曲" width="80">
+            <template #default="{ row }">{{ formatSingle(row.single_name) || `${row.single_number}單` }}</template>
           </el-table-column>
           <el-table-column prop="event_date" label="日期" width="120" />
           <el-table-column label="抽次" width="70" align="center">
             <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
           </el-table-column>
-          <el-table-column prop="applied_count" label="應募" width="65" align="right" />
-          <el-table-column prop="won_count" label="中選" width="65" align="right" />
-          <el-table-column label="中選率" width="80" align="right">
+          <el-table-column label="應募" width="75" align="right">
+            <template #default="{ row }">{{ Math.round(row.applied_count / 3) }} 口</template>
+          </el-table-column>
+          <el-table-column label="結果" width="75" align="center">
             <template #default="{ row }">
-              {{ row.applied_count > 0 ? (row.won_count / row.applied_count * 100).toFixed(1) + '%' : '—' }}
+              <span :class="row.won_count > 0 ? 'tag-won' : 'tag-lost'">
+                {{ row.won_count > 0 ? '中選' : '落選' }}
+              </span>
             </template>
           </el-table-column>
         </el-table>
@@ -173,7 +245,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminTitleIssues, fixSingleTitle, getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, getAdminScrapeLogs, getAdminSignEvents } from '../api/index'
+import { getAdminTitleIssues, fixSingleTitle, getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, previewUserRecords, previewUserFullRecords, previewUserPurchases, getAdminScrapeLogs, getAdminSignEvents } from '../api/index'
 import { useImpersonateStore } from '../stores/impersonate'
 import { useDataStore } from '../stores/data'
 
@@ -191,12 +263,61 @@ const signPageSize = 50
 const signFilter  = ref({ userId: null, member: '', singleNumber: '' })
 
 const del = ref({
-  mode:         '',
+  mode:         'all',
   recordType:   'records',
   userId:       null,
+  group:        '',
   singleNumber: '',
   dateRange:    [],
 })
+
+const previewData     = ref([])
+const previewTotal    = ref(0)
+const previewPage     = ref(1)
+const previewExecuted = ref(false)
+const previewLoading  = ref(false)
+
+function buildDelParams() {
+  const params = {}
+  if (del.value.group)        params.group         = del.value.group
+  if (del.value.mode === 'single' && del.value.singleNumber) params.single_number = del.value.singleNumber
+  if (del.value.mode === 'date' && del.value.dateRange?.length === 2) {
+    params.date_from = del.value.dateRange[0]
+    params.date_to   = del.value.dateRange[1]
+  }
+  return params
+}
+
+function clearPreview() {
+  previewData.value     = []
+  previewTotal.value    = 0
+  previewPage.value     = 1
+  previewExecuted.value = false
+}
+
+async function queryPreview() {
+  if (!del.value.userId) return
+  previewLoading.value = true
+  previewPage.value = 1
+  try {
+    await loadPreviewPage()
+    previewExecuted.value = true
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+async function loadPreviewPage() {
+  const params = { ...buildDelParams(), page: previewPage.value }
+  const fnMap = {
+    'records':     previewUserRecords,
+    'full-records': previewUserFullRecords,
+    'purchases':   previewUserPurchases,
+  }
+  const res = await fnMap[del.value.recordType](del.value.userId, params)
+  previewData.value  = res.data.data  ?? []
+  previewTotal.value = res.data.total ?? 0
+}
 
 function viewAs(user) {
   impersonateStore.start(user)
@@ -230,32 +351,19 @@ async function loadIssues() {
 async function execDelete() {
   const user = users.value.find(u => u.id === del.value.userId)
   if (!user) return
-
-  const modeLabel = { all: '全部資料', single: `第 ${del.value.singleNumber} 單`, date: `${del.value.dateRange?.[0]} ～ ${del.value.dateRange?.[1]}` }
-  const typeLabel = { records: '個握', 'full-records': '全握', purchases: '個握花費記錄' }[del.value.recordType] ?? '個握'
-
+  const typeLabel = { records: '個握', 'full-records': '全握', purchases: '個握花費' }[del.value.recordType] ?? '個握'
   try {
     await ElMessageBox.confirm(
-      `確定要刪除 ${user.name}（${user.email}）的${typeLabel} ${modeLabel[del.value.mode]} 資料嗎？此操作無法復原。`,
+      `確定要刪除 ${user.name}（${user.email}）的 ${typeLabel} 共 ${previewTotal.value} 筆資料？此操作無法復原。`,
       '刪除確認',
       { confirmButtonText: '確定刪除', cancelButtonText: '取消', type: 'warning' }
     )
   } catch { return }
-
-  const params = {}
-  if (del.value.mode === 'single' && del.value.singleNumber) {
-    params.single_number = del.value.singleNumber
-  }
-  if (del.value.mode === 'date' && del.value.dateRange?.length === 2) {
-    params.date_from = del.value.dateRange[0]
-    params.date_to   = del.value.dateRange[1]
-  }
-
   try {
     const fnMap = { records: deleteUserRecords, 'full-records': deleteUserFullRecords, purchases: deleteUserPurchases }
-    const fn  = fnMap[del.value.recordType] ?? deleteUserRecords
-    const res = await fn(del.value.userId, params)
+    const res = await fnMap[del.value.recordType](del.value.userId, buildDelParams())
     ElMessage.success(`已刪除 ${res.data.deleted} 筆`)
+    clearPreview()
     await loadUsers()
   } catch (e) {
     ElMessage.error(e.response?.data?.error || '刪除失敗')
@@ -277,6 +385,13 @@ async function fix(row) {
   } finally {
     row._loading = false
   }
+}
+
+function formatSingle(name) {
+  if (!name) return ''
+  return name
+    .replace(/(\d+)(?:st|nd|rd|th)シングル/, (_, n) => `${n}單`)
+    .replace(/(\d+)(?:st|nd|rd|th)アルバム/, (_, n) => `${n}專`)
 }
 
 function formatDuration(sec) {
@@ -362,5 +477,7 @@ onMounted(() => {
 .sub-text { font-size: 11px; color: #999; }
 .tag-ok    { color: #059669; font-size: 13px; }
 .tag-error { color: #dc2626; font-size: 13px; }
+.tag-won   { color: #52c41a; font-weight: bold; }
+.tag-lost  { color: #ff4d4f; font-weight: bold; }
 .filter-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
 </style>

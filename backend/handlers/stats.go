@@ -153,15 +153,17 @@ return rows
 }
 
 func GetStatsByMember(c *gin.Context) {
-userID := getUserID(c)
-var rows []groupedStat
-db.DB.Model(&models.Record{}).
-Where("user_id = ?", userID).
-Select("member_name, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won").
-Group("member_name").
-Order("total_won DESC").
-Scan(&rows)
-c.JSON(http.StatusOK, calcWinRate(rows))
+	userID := getUserID(c)
+	q := db.DB.Model(&models.Record{}).Where("user_id = ?", userID)
+	if grp := c.Query("group"); grp != "" {
+		q = q.Where(`"group" = ?`, grp)
+	}
+	var rows []groupedStat
+	q.Select("member_name, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won").
+		Group("member_name").
+		Order("total_won DESC").
+		Scan(&rows)
+	c.JSON(http.StatusOK, calcWinRate(rows))
 }
 
 func GetStatsByDate(c *gin.Context) {
@@ -203,10 +205,12 @@ func GetDetailStats(c *gin.Context) {
 		WinRate      float64 `json:"win_rate"`
 	}
 
+	q := db.DB.Model(&models.Record{}).Where("user_id = ?", userID)
+	if grp := c.Query("group"); grp != "" {
+		q = q.Where(`"group" = ?`, grp)
+	}
 	var rows []detailRow
-	db.DB.Model(&models.Record{}).
-		Where("user_id = ?", userID).
-		Select("member_name, single_number, MAX(single_name) as single_name, lottery_round, event_date, session, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won").
+	q.Select("member_name, single_number, MAX(single_name) as single_name, lottery_round, event_date, session, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won").
 		Group("member_name, single_number, lottery_round, event_date, session").
 		Order("member_name, single_number, lottery_round, event_date, session").
 		Scan(&rows)
@@ -237,6 +241,9 @@ pageSize = n
 }
 
 query := db.DB.Model(&models.Record{}).Where("user_id = ?", userID)
+if grp := c.Query("group"); grp != "" {
+query = query.Where("\"group\" = ?", grp)
+}
 if member := c.Query("member"); member != "" {
 query = query.Where("member_name = ?", member)
 }

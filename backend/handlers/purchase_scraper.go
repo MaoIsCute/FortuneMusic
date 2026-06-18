@@ -344,6 +344,16 @@ func DeleteUserPurchases(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的使用者 ID"})
 		return
 	}
-	deleted := buildDeleteQuery(c, uint(targetID), &models.Purchase{})
+	q := db.DB.Where("user_id = ?", uint(targetID))
+	if sn := c.Query("single_number"); sn != "" {
+		q = q.Where("single_number = ?", sn)
+	}
+	if from := c.Query("date_from"); from != "" {
+		q = q.Where("event_date >= ?", from)
+	}
+	if to := c.Query("date_to"); to != "" {
+		q = q.Where("event_date <= ?", to)
+	}
+	deleted := q.Delete(&models.Purchase{}).RowsAffected
 	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
 }

@@ -6,6 +6,11 @@
     <EmptyState v-else-if="isEmpty" />
     <template v-else>
     <div class="filters">
+      <el-select v-model="filterGroup" placeholder="團體" clearable style="width:120px" @change="onGroupChange">
+        <el-option label="乃木坂46" value="nogizaka46" />
+        <el-option label="櫻坂46" value="sakurazaka46" />
+        <el-option label="日向坂46" value="hinatazaka46" />
+      </el-select>
       <el-select v-model="filterMember" placeholder="選擇成員" clearable @change="loadRecords">
         <el-option v-for="m in memberList" :key="m" :label="m" :value="m" />
       </el-select>
@@ -61,6 +66,7 @@ const total    = ref(0)
 const page     = ref(1)
 const pageSize = 20
 
+const filterGroup  = ref('')
 const filterMember = ref('')
 const filterSingle = ref('')
 const filterRound  = ref('')
@@ -76,17 +82,32 @@ const isEmpty = computed(() =>
   loaded.value && total.value === 0 && !filterMember.value && !filterSingle.value && !filterRound.value
 )
 
+async function reloadFilterLists() {
+  const groupParam = filterGroup.value ? { group: filterGroup.value } : {}
+  const [membersRes, detailRes] = await Promise.all([
+    getStatsByMember(groupParam),
+    getDetailStats(groupParam),
+  ])
+  memberList.value = sortMembersByGen((membersRes.data ?? []).map(m => m.member_name))
+  const rows = detailRes.data ?? []
+  singleList.value = [...new Set(rows.map(r => r.single_name).filter(Boolean))].sort()
+  roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) => a - b)
+}
+
+async function onGroupChange() {
+  filterMember.value = ''
+  filterSingle.value = ''
+  await reloadFilterLists()
+  await loadRecords()
+}
+
 onMounted(async () => {
   if (dataStore.hasData === false) {
     loaded.value = true
     return
   }
   try {
-    const [membersRes, detailRes] = await Promise.all([getStatsByMember(), getDetailStats()])
-    memberList.value = sortMembersByGen((membersRes.data ?? []).map(m => m.member_name))
-    const rows = detailRes.data ?? []
-    singleList.value = [...new Set(rows.map(r => r.single_name).filter(Boolean))].sort()
-    roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) => a - b)
+    await reloadFilterLists()
     await loadRecords()
   } catch {
     loadFailed.value = true
@@ -102,6 +123,7 @@ async function loadRecords() {
 
 async function fetchPage() {
   const params = { page: page.value, page_size: pageSize }
+  if (filterGroup.value)  params.group  = filterGroup.value
   if (filterMember.value) params.member = filterMember.value
   if (filterSingle.value) params.single = filterSingle.value
   if (filterRound.value)  params.round  = filterRound.value

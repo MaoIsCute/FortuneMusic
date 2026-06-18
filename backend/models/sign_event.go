@@ -6,6 +6,7 @@ type SignEvent struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	UserID       uint      `gorm:"index;not null" json:"user_id"`
 	OrderID      string    `gorm:"index" json:"order_id"`
+	Group        string    `json:"group"`
 	SingleNumber int       `json:"single_number"`
 	SingleName   string    `json:"single_name"`
 	EventDate    string    `json:"event_date"`

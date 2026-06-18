@@ -7,6 +7,7 @@ type Record struct {
 	UserID        uint      `gorm:"index;not null" json:"user_id"`
 	User          User      `gorm:"foreignKey:UserID" json:"-"`
 	OrderID       string    `gorm:"index" json:"order_id"`
+	Group         string    `json:"group"`
 	SingleNumber  int       `json:"single_number"`
 	SingleName    string    `json:"single_name"`
 	LotteryRound  int       `json:"lottery_round"`

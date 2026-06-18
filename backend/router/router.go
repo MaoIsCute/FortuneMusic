@@ -47,6 +47,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 	{
 		api.GET("/me", handlers.GetMe)
 		api.GET("/admin/users", handlers.GetAdminUsers)
+		api.GET("/admin/users/:id/records/preview", handlers.PreviewUserRecords)
+		api.GET("/admin/users/:id/full-records/preview", handlers.PreviewUserFullRecords)
+		api.GET("/admin/users/:id/purchases/preview", handlers.PreviewUserPurchases)
 		api.DELETE("/admin/users/:id/records", handlers.DeleteUserRecords)
 		api.DELETE("/admin/users/:id/full-records", handlers.DeleteUserFullRecords)
 		api.DELETE("/admin/users/:id/purchases", handlers.DeleteUserPurchases)

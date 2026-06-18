@@ -11,6 +11,7 @@ import (
 	"fortune-tracker/models"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 var configuredAdminEmail string
@@ -137,8 +138,10 @@ func GetAdminUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, users)
 }
 
-func buildDeleteQuery(c *gin.Context, targetID uint, model interface{}) int64 {
-	q := db.DB.Where("user_id = ?", targetID)
+func applyDeleteFilters(q *gorm.DB, c *gin.Context) *gorm.DB {
+	if grp := c.Query("group"); grp != "" {
+		q = q.Where(`"group" = ?`, grp)
+	}
 	if sn := c.Query("single_number"); sn != "" {
 		q = q.Where("single_number = ?", sn)
 	}
@@ -148,32 +151,84 @@ func buildDeleteQuery(c *gin.Context, targetID uint, model interface{}) int64 {
 	if to := c.Query("date_to"); to != "" {
 		q = q.Where("event_date <= ?", to)
 	}
-	return q.Delete(model).RowsAffected
+	return q
+}
+
+func parseAdminTarget(c *gin.Context) (uint, bool) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的使用者 ID"})
+		return 0, false
+	}
+	return uint(id), true
+}
+
+func PreviewUserRecords(c *gin.Context) {
+	if !checkAdmin(c) { return }
+	targetID, ok := parseAdminTarget(c)
+	if !ok { return }
+	page, pageSize := 1, 50
+	fmt.Sscan(c.DefaultQuery("page", "1"), &page)
+	q := applyDeleteFilters(db.DB.Model(&models.Record{}).Where("user_id = ?", targetID), c)
+	var total int64
+	q.Count(&total)
+	var records []models.Record
+	q.Order("event_date DESC, member_name ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&records)
+	c.JSON(http.StatusOK, gin.H{"data": records, "total": total})
+}
+
+func PreviewUserFullRecords(c *gin.Context) {
+	if !checkAdmin(c) { return }
+	targetID, ok := parseAdminTarget(c)
+	if !ok { return }
+	page, pageSize := 1, 50
+	fmt.Sscan(c.DefaultQuery("page", "1"), &page)
+	q := applyDeleteFilters(db.DB.Model(&models.FullRecord{}).Where("user_id = ?", targetID), c)
+	var total int64
+	q.Count(&total)
+	var records []models.FullRecord
+	q.Order("event_date DESC, member_name ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&records)
+	c.JSON(http.StatusOK, gin.H{"data": records, "total": total})
+}
+
+func PreviewUserPurchases(c *gin.Context) {
+	if !checkAdmin(c) { return }
+	targetID, ok := parseAdminTarget(c)
+	if !ok { return }
+	page, pageSize := 1, 50
+	fmt.Sscan(c.DefaultQuery("page", "1"), &page)
+	q := db.DB.Model(&models.Purchase{}).Where("user_id = ?", targetID)
+	if sn := c.Query("single_number"); sn != "" {
+		q = q.Where("single_number = ?", sn)
+	}
+	if from := c.Query("date_from"); from != "" {
+		q = q.Where("event_date >= ?", from)
+	}
+	if to := c.Query("date_to"); to != "" {
+		q = q.Where("event_date <= ?", to)
+	}
+	var total int64
+	q.Count(&total)
+	var purchases []models.Purchase
+	q.Order("event_date DESC, member_name ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&purchases)
+	c.JSON(http.StatusOK, gin.H{"data": purchases, "total": total})
 }
 
 func DeleteUserRecords(c *gin.Context) {
-	if !checkAdmin(c) {
-		return
-	}
-	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的使用者 ID"})
-		return
-	}
-	deleted := buildDeleteQuery(c, uint(targetID), &models.Record{})
+	if !checkAdmin(c) { return }
+	targetID, ok := parseAdminTarget(c)
+	if !ok { return }
+	q := applyDeleteFilters(db.DB.Where("user_id = ?", targetID), c)
+	deleted := q.Delete(&models.Record{}).RowsAffected
 	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
 }
 
 func DeleteUserFullRecords(c *gin.Context) {
-	if !checkAdmin(c) {
-		return
-	}
-	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的使用者 ID"})
-		return
-	}
-	deleted := buildDeleteQuery(c, uint(targetID), &models.FullRecord{})
+	if !checkAdmin(c) { return }
+	targetID, ok := parseAdminTarget(c)
+	if !ok { return }
+	q := applyDeleteFilters(db.DB.Where("user_id = ?", targetID), c)
+	deleted := q.Delete(&models.FullRecord{}).RowsAffected
 	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
 }
 

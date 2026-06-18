@@ -46,6 +46,17 @@ func GetFullOverallStats(c *gin.Context) {
 func GetFullStatsByMember(c *gin.Context) {
 	userID := getUserID(c)
 
+	query := db.DB.Model(&models.FullRecord{}).Where("user_id = ?", userID)
+	if grp := c.Query("group"); grp != "" {
+		query = query.Where(`"group" = ?`, grp)
+	}
+	if et := c.Query("event_type"); et != "" {
+		query = query.Where("event_type = ?", et)
+	}
+	if v := c.Query("venue"); v != "" {
+		query = query.Where("venue = ?", v)
+	}
+
 	type Row struct {
 		MemberName   string  `json:"member_name"`
 		TotalApplied int     `json:"total_applied"`
@@ -53,10 +64,8 @@ func GetFullStatsByMember(c *gin.Context) {
 		WinRate      float64 `json:"win_rate"`
 	}
 	var rows []Row
-	db.DB.Model(&models.FullRecord{}).
-		Where("user_id = ?", userID).
-		Select("member_name, SUM(applied_count) as total_applied, SUM(won_count) as total_won, "+
-			"ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count),0) * 100, 1) as win_rate").
+	query.Select("member_name, SUM(applied_count) as total_applied, SUM(won_count) as total_won, "+
+		"ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count),0) * 100, 1) as win_rate").
 		Group("member_name").
 		Order("total_applied DESC").
 		Scan(&rows)
@@ -70,6 +79,7 @@ func GetFullDetailStats(c *gin.Context) {
 	type Row struct {
 		SingleNumber int     `json:"single_number"`
 		SingleName   string  `json:"single_name"`
+		MemberName   string  `json:"member_name"`
 		Session      string  `json:"session"`
 		LotteryRound float64 `json:"lottery_round"`
 		TotalApplied int     `json:"total_applied"`
@@ -80,14 +90,17 @@ func GetFullDetailStats(c *gin.Context) {
 	if m := c.Query("member"); m != "" {
 		query = query.Where("member_name LIKE ?", "%"+m+"%")
 	}
+	if et := c.Query("event_type"); et != "" {
+		query = query.Where("event_type = ?", et)
+	}
 	if v := c.Query("venue"); v != "" {
 		query = query.Where("venue = ?", v)
 	}
 
 	var rows []Row
-	query.Select("single_number, single_name, session, lottery_round, SUM(applied_count) as total_applied, SUM(won_count) as total_won").
-		Group("single_number, single_name, session, lottery_round").
-		Order("single_number ASC, session ASC, lottery_round ASC").
+	query.Select("single_number, single_name, member_name, session, lottery_round, SUM(applied_count) as total_applied, SUM(won_count) as total_won").
+		Group("single_number, single_name, member_name, session, lottery_round").
+		Order("single_number ASC, member_name ASC, session ASC, lottery_round ASC").
 		Scan(&rows)
 
 	c.JSON(http.StatusOK, rows)
@@ -104,8 +117,11 @@ func GetFullStatsBySingle(c *gin.Context) {
 		WinRate      float64 `json:"win_rate"`
 	}
 	var rows []Row
-	db.DB.Model(&models.FullRecord{}).
-		Where("user_id = ?", userID).
+	q := db.DB.Model(&models.FullRecord{}).Where("user_id = ?", userID)
+	if grp := c.Query("group"); grp != "" {
+		q = q.Where(`"group" = ?`, grp)
+	}
+	q.
 		Select("single_number, single_name, SUM(applied_count) as total_applied, SUM(won_count) as total_won, "+
 			"ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count),0) * 100, 1) as win_rate").
 		Group("single_number, single_name").

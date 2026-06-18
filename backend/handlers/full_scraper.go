@@ -15,6 +15,7 @@ import (
 func PushFullRecords(c *gin.Context) {
 	type FullPayload struct {
 		OrderID      string  `json:"order_id"`
+		Group        string  `json:"group"`
 		SingleNumber int     `json:"single_number"`
 		SingleName   string  `json:"single_name"`
 		EventType    string  `json:"event_type"`
@@ -42,7 +43,7 @@ func PushFullRecords(c *gin.Context) {
 		return
 	}
 
-	newRecords, skipped := 0, 0
+	newRecords, updated, skipped := 0, 0, 0
 	now := time.Now()
 
 	for _, r := range req.Records {
@@ -51,12 +52,21 @@ func PushFullRecords(c *gin.Context) {
 		if isSign {
 			var existing models.SignEvent
 			if db.DB.Where("user_id = ? AND order_id = ?", user.ID, r.OrderID).First(&existing).Error == nil {
-				skipped++
+				if existing.AppliedCount != r.AppliedCount || existing.WonCount != r.WonCount {
+					db.DB.Model(&existing).Updates(map[string]any{
+						"applied_count": r.AppliedCount,
+						"won_count":     r.WonCount,
+					})
+					updated++
+				} else {
+					skipped++
+				}
 				continue
 			}
 			ev := models.SignEvent{
 				UserID:       user.ID,
 				OrderID:      r.OrderID,
+				Group:        r.Group,
 				SingleNumber: r.SingleNumber,
 				SingleName:   r.SingleName,
 				EventDate:    r.EventDate,
@@ -75,12 +85,21 @@ func PushFullRecords(c *gin.Context) {
 
 		var existing models.FullRecord
 		if db.DB.Where("user_id = ? AND order_id = ?", user.ID, r.OrderID).First(&existing).Error == nil {
-			skipped++
+			if existing.AppliedCount != r.AppliedCount || existing.WonCount != r.WonCount {
+				db.DB.Model(&existing).Updates(map[string]any{
+					"applied_count": r.AppliedCount,
+					"won_count":     r.WonCount,
+				})
+				updated++
+			} else {
+				skipped++
+			}
 			continue
 		}
 		rec := models.FullRecord{
 			UserID:       user.ID,
 			OrderID:      r.OrderID,
+			Group:        r.Group,
 			SingleNumber: r.SingleNumber,
 			SingleName:   r.SingleName,
 			EventType:    r.EventType,
@@ -102,8 +121,9 @@ func PushFullRecords(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"new_records": newRecords,
+		"updated":     updated,
 		"skipped":     skipped,
-		"message":     fmt.Sprintf("完成！新增 %d 筆，跳過 %d 筆", newRecords, skipped),
+		"message":     fmt.Sprintf("完成！新增 %d 筆，更新 %d 筆，跳過 %d 筆", newRecords, updated, skipped),
 	})
 }
 
@@ -119,6 +139,9 @@ func GetFullRecords(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	query := db.DB.Model(&models.FullRecord{}).Where("user_id = ?", userID)
+	if grp := c.Query("group"); grp != "" {
+		query = query.Where("\"group\" = ?", grp)
+	}
 	if m := c.Query("member"); m != "" {
 		query = query.Where("member_name LIKE ?", "%"+m+"%")
 	}

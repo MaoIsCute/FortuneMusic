@@ -95,6 +95,9 @@ async function scrapeListPage(pageNum) {
         info.isAlbum   = true
         info.albumTitle = titleM ? titleM[1] : null
       }
+      if (/乃木坂46/.test(eventText))      info.group = 'nogizaka46'
+      else if (/櫻坂46/.test(eventText))   info.group = 'sakurazaka46'
+      else if (/日向坂46/.test(eventText)) info.group = 'hinatazaka46'
     }
 
     orders.push({ id, info: Object.keys(info).length ? info : null })
@@ -184,6 +187,7 @@ async function fetchOrderDetails(entries) {
         const singleNumber = applyInfo?.singleNum ? parseInt(applyInfo.singleNum) : 0
 
         aggregated[key] = {
+          group:         applyInfo?.group || '',
           member_name:   parsed.member_name,
           event_date:    `${eventYear}/${parsed.raw_date}`,
           session:       parsed.session,
@@ -520,8 +524,7 @@ function parseLotteryRound(times) {
 function parseFullApiResults(results, singleNum, group) {
   const suffix = ordinalSuffix(singleNum)
   const singleName = `${singleNum}${suffix}シングル`
-  const records = []
-  const seen = new Set()
+  const recordMap = {}
 
   for (const item of results) {
     const prizeInfo = item.prizeInfo || {}
@@ -545,25 +548,29 @@ function parseFullApiResults(results, singleNum, group) {
     const lotteryRound = parseLotteryRound(prizeInfo.times || '')
 
     const orderId = `full:${group}_${singleNum}${suffix}:${item.prizeId}:${memberName}:${lotteryRound}`
-    if (seen.has(orderId)) continue
-    seen.add(orderId)
 
-    records.push({
-      order_id:      orderId,
-      single_number: singleNum,
-      single_name:   singleName,
-      event_type:    eventType,
-      venue,
-      event_date:    eventDate,
-      session,
-      member_name:   memberName,
-      applied_count: appliedCount,
-      won_count:     wonCount,
-      lottery_round: lotteryRound,
-      source_url:    '',
-    })
+    if (recordMap[orderId]) {
+      recordMap[orderId].applied_count += appliedCount
+      recordMap[orderId].won_count     += wonCount
+    } else {
+      recordMap[orderId] = {
+        order_id:      orderId,
+        group,
+        single_number: singleNum,
+        single_name:   singleName,
+        event_type:    eventType,
+        venue,
+        event_date:    eventDate,
+        session,
+        member_name:   memberName,
+        applied_count: appliedCount,
+        won_count:     wonCount,
+        lottery_round: lotteryRound,
+        source_url:    '',
+      }
+    }
   }
-  return records
+  return Object.values(recordMap)
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
