@@ -9,7 +9,7 @@
       </el-button>
       <p v-if="statusMsg" :class="['status-msg', statusType]">{{ statusMsg }}</p>
       <div v-if="statusType === 'error'" class="install-guide">
-        <a href="https://drive.google.com/uc?export=download&id=18jPhpsXSRq2xQsVadm80t1oJ145SF1kv" target="_blank" class="download-btn">
+        <a href="https://github.com/MaoIsCute/FortuneMusic/raw/main/FTExtension.zip" target="_blank" class="download-btn">
           ⬇️ 下載同步工具
         </a>
         <ol class="install-steps">
@@ -67,6 +67,7 @@ async function authorize() {
     const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 
     await new Promise((resolve, reject) => {
+      if (!window.chrome?.runtime?.sendMessage) { reject(new Error('not_found')); return }
       chrome.runtime.sendMessage(
         EXTENSION_ID,
         { type: 'FORTUNE_SETUP', token, backendUrl },
@@ -86,7 +87,7 @@ async function authorize() {
     statusType.value = 'success'
   } catch (e) {
     const msg = e.message || ''
-    statusMsg.value = msg.includes('Could not establish connection') || msg.includes('Extension')
+    statusMsg.value = msg.includes('Could not establish connection') || msg.includes('Extension') || msg === 'not_found'
       ? '找不到同步工具，請先下載並安裝。'
       : msg
     statusType.value = 'error'
