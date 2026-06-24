@@ -310,7 +310,13 @@ function hideProgress() {
   progressBarFill.style.width = '0%'
 }
 
-function addLogEntry(type, newCount, skipCount, errorMsg, stopped = false, elapsed = null) {
+function buildMismatchWarning(mismatches) {
+  if (!mismatches || mismatches.length === 0) return null
+  const ids = mismatches.slice(0, 5).map(m => m.id).join(', ') + (mismatches.length > 5 ? ' 等' : '')
+  return `${mismatches.length} 筆訂單小計不符，可能漏抓（entry_id: ${ids}）`
+}
+
+function addLogEntry(type, newCount, skipCount, errorMsg, stopped = false, elapsed = null, warningMsg = null) {
   const empty = logList.querySelector('.log-empty')
   if (empty) empty.remove()
 
@@ -319,13 +325,15 @@ function addLogEntry(type, newCount, skipCount, errorMsg, stopped = false, elaps
   const isError   = !!errorMsg
   const isStopped = stopped && !isError
   const isEmpty   = !errorMsg && !stopped && newCount === 0 && skipCount === 0
-  const cls  = isError ? 'error' : (isStopped || isEmpty) ? 'warning' : 'success'
-  const icon = isError ? '❌' : (isStopped || isEmpty) ? '⚠️' : '✅'
+  const hasWarning = !isError && !!warningMsg
+  const cls  = isError ? 'error' : (isStopped || isEmpty || hasWarning) ? 'warning' : 'success'
+  const icon = isError ? '❌' : (isStopped || isEmpty || hasWarning) ? '⚠️' : '✅'
   const timeStr = elapsed !== null ? ` · 耗時 ${formatElapsed(elapsed)}` : ''
-  const body = isError   ? errorMsg
+  let body = isError   ? errorMsg
     : isStopped ? `已停止 · 新增 ${newCount} 筆${skipCount > 0 ? ' · 跳過 ' + skipCount : ''}${timeStr}`
     : isEmpty   ? `無新資料${timeStr}`
     : `新增 ${newCount} 筆${skipCount > 0 ? ' · 跳過 ' + skipCount : ''}${timeStr}`
+  if (hasWarning) body += `<br>⚠️ ${warningMsg}`
 
   const el = document.createElement('div')
   el.className = 'log-entry ' + cls
@@ -873,15 +881,15 @@ async function fetchEntryDetailItems(entries) {
 
   async function fetchSingle({ id, urlId, info }) {
     let res
-    try { res = await fetch(`/mypage/entry_detail/${urlId || id}/`) } catch { return [] }
+    try { res = await fetch(`/mypage/entry_detail/${urlId || id}/`) } catch { return { items: [], mismatch: null } }
     if (res.status === 503) {
       await new Promise(r => setTimeout(r, 2000))
-      try { res = await fetch(`/mypage/entry_detail/${urlId || id}/`) } catch { return [] }
+      try { res = await fetch(`/mypage/entry_detail/${urlId || id}/`) } catch { return { items: [], mismatch: null } }
     }
-    if (!res.ok) return []
+    if (!res.ok) return { items: [], mismatch: null }
 
     const doc = parser.parseFromString(await res.text(), 'text/html')
-    const items = []
+    const aggregated = {}
 
     let appliedYear = new Date().getFullYear()
     let appliedMonth = new Date().getMonth() + 1
@@ -914,11 +922,21 @@ async function fetchEntryDetailItems(entries) {
       const quaTd  = row.querySelector('td.tdQua')
       const qtyStr = (quaTd?.textContent || '').replace(/[^0-9]/g, '')
       const quantity = parseInt(qtyStr) || 1
+      const subtotal = unitPrice * quantity
+
+      // 同張訂單內相同 member+date+session 視為同一筆，加總 quantity/subtotal 後只送一筆
+      // （避免後端 item_key 去重時把第二筆當成「已存在」而漏算金額）
+      const key = memberName + rawDate + session
+      if (aggregated[key]) {
+        aggregated[key].quantity += quantity
+        aggregated[key].subtotal += subtotal
+        return
+      }
 
       const eventMonth = parseInt(rawDate.split('/')[0])
       const eventYear  = eventMonth < appliedMonth ? appliedYear + 1 : appliedYear
 
-      items.push({
+      aggregated[key] = {
         entry_id:      id,
         order_number:  info?.orderNumber || '',
         member_name:   memberName,
@@ -929,22 +947,40 @@ async function fetchEntryDetailItems(entries) {
         lottery_round: info?.lotteryRound || 0,
         unit_price:    unitPrice,
         quantity,
-        subtotal:      unitPrice * quantity,
+        subtotal,
         applied_at:    info?.appliedAt || '',
-      })
+      }
     })
 
-    return items
+    const items = Object.values(aggregated)
+
+    // 用頁面上顯示的「小計」跟解析出的 items 加總比對，抓出漏抓/誤抓的訂單
+    let declaredSubtotal = null
+    doc.querySelectorAll('span.hdg').forEach(span => {
+      if (span.textContent.trim() !== '小計') return
+      const n = (span.parentElement?.textContent || '').replace(/[^0-9]/g, '')
+      if (n) declaredSubtotal = parseInt(n)
+    })
+    const actualSubtotal = items.reduce((sum, it) => sum + it.subtotal, 0)
+    const mismatch = (declaredSubtotal !== null && declaredSubtotal !== actualSubtotal)
+      ? { id, declared: declaredSubtotal, actual: actualSubtotal }
+      : null
+
+    return { items, mismatch }
   }
 
   const purchases = []
+  const mismatches = []
   for (let i = 0; i < entries.length; i += CONCURRENCY) {
     const batch = entries.slice(i, i + CONCURRENCY)
     const results = await Promise.all(batch.map(fetchSingle))
-    results.forEach(r => purchases.push(...r))
+    results.forEach(r => {
+      purchases.push(...r.items)
+      if (r.mismatch) mismatches.push(r.mismatch)
+    })
     if (i + CONCURRENCY < entries.length) await new Promise(r => setTimeout(r, 500))
   }
-  return { purchases }
+  return { purchases, mismatches }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -977,6 +1013,7 @@ purchaseScrapeBtn.addEventListener('click', async () => {
   startTimer()
 
   let totalNew = 0, totalSkipped = 0, page = 1, errorMsg = ''
+  const allMismatches = []
 
   try {
     const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/entry_list/*' })
@@ -1016,6 +1053,7 @@ purchaseScrapeBtn.addEventListener('click', async () => {
           args:   [newEntries],
         })
         const detailData = detailResult[0]?.result
+        if (detailData?.mismatches?.length > 0) allMismatches.push(...detailData.mismatches)
         if (detailData?.purchases?.length > 0) {
           const pushRes = await fetch(`${backendUrl}/scrape/purchases/push`, {
             method:  'POST',
@@ -1033,12 +1071,13 @@ purchaseScrapeBtn.addEventListener('click', async () => {
     }
 
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('個握花費', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
+    const warningMsg = buildMismatchWarning(allMismatches)
+    addLogEntry('個握花費', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, warningMsg)
     await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, errorMsg, elapsed)
     if (!errorMsg && !isStopping) setPurchaseWaitingMode(false)
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('個握花費', totalNew, totalSkipped, e.message, false, elapsed)
+    addLogEntry('個握花費', totalNew, totalSkipped, e.message, false, elapsed, buildMismatchWarning(allMismatches))
     await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, e.message, elapsed)
   } finally {
     purchaseScrapeBtn.disabled    = false
@@ -1305,6 +1344,7 @@ refetchPurchaseBtn.addEventListener('click', async () => {
 
   const entries = [...verifyPurchaseMissingEntries]
   let totalNew = 0, totalSkipped = 0, errorMsg = ''
+  const allMismatches = []
 
   try {
     for (let i = 0; i < entries.length; i++) {
@@ -1319,6 +1359,7 @@ refetchPurchaseBtn.addEventListener('click', async () => {
         args:   [[entries[i]]],
       })
       const detailData = detailResult[0]?.result
+      if (detailData?.mismatches?.length > 0) allMismatches.push(...detailData.mismatches)
       if (detailData?.purchases?.length > 0) {
         const pushRes = await fetch(`${backendUrl}/scrape/purchases/push`, {
           method:  'POST',
@@ -1335,7 +1376,7 @@ refetchPurchaseBtn.addEventListener('click', async () => {
     }
 
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
+    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, buildMismatchWarning(allMismatches))
     await pushScrapeLog(backendUrl, scrapeToken, '補抓個握花費遺漏', totalNew, totalSkipped, errorMsg)
 
     if (!errorMsg && !isStopping) {
@@ -1344,7 +1385,7 @@ refetchPurchaseBtn.addEventListener('click', async () => {
     }
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, e.message, false, elapsed)
+    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, e.message, false, elapsed, buildMismatchWarning(allMismatches))
     await pushScrapeLog(backendUrl, scrapeToken, '補抓個握花費遺漏', totalNew, totalSkipped, e.message)
   } finally {
     refetchPurchaseBtn.disabled    = false

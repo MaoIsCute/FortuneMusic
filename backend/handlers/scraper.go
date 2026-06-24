@@ -100,17 +100,29 @@ func PushRecords(c *gin.Context) {
 	now := time.Now()
 	corrections := loadCorrectionMap()
 
-	// 先過濾掉已存在的 source_url（在 transaction 外做，避免不必要的 rollback）
-	newRecords, skipped := 0, 0
-	var toInsert []models.Record
+	// 批次查出已存在的 source_url，避免在迴圈中逐筆查詢
+	sourceURLs := make([]string, 0, len(req.Records))
 	for _, r := range req.Records {
 		if r.SourceURL != "" {
-			var cnt int64
-			db.DB.Model(&models.Record{}).Where("source_url = ?", r.SourceURL).Count(&cnt)
-			if cnt > 0 {
-				skipped++
-				continue
-			}
+			sourceURLs = append(sourceURLs, r.SourceURL)
+		}
+	}
+	existingSet := map[string]bool{}
+	if len(sourceURLs) > 0 {
+		var existing []string
+		db.DB.Model(&models.Record{}).Where("source_url IN ?", sourceURLs).Pluck("source_url", &existing)
+		for _, u := range existing {
+			existingSet[u] = true
+		}
+	}
+
+	skipped := 0
+	toInsertMap := map[string]models.Record{} // key 為 source_url，空字串各自配一個唯一 key 避免互相覆蓋
+	noURLSeq := 0
+	for _, r := range req.Records {
+		if r.SourceURL != "" && existingSet[r.SourceURL] {
+			skipped++
+			continue
 		}
 		singleName := r.SingleName
 		if strings.Contains(singleName, "タイトル未定") {
@@ -118,7 +130,7 @@ func PushRecords(c *gin.Context) {
 				singleName = corrected
 			}
 		}
-		toInsert = append(toInsert, models.Record{
+		rec := models.Record{
 			UserID:       user.ID,
 			OrderID:      extractOrderID(r.SourceURL),
 			Group:        r.Group,
@@ -132,21 +144,30 @@ func PushRecords(c *gin.Context) {
 			WonCount:     r.WonCount,
 			SourceURL:    r.SourceURL,
 			ScrapedAt:    now,
-		})
+		}
+		key := r.SourceURL
+		if key == "" {
+			noURLSeq++
+			key = fmt.Sprintf("__no_url_%d", noURLSeq)
+		}
+		toInsertMap[key] = rec // 同批重複 source_url 取最後一筆，避免觸發唯一索引衝突
 	}
 
-	// 用 transaction 確保同一批全成功或全回滾
-	if len(toInsert) > 0 {
+	// 用 transaction 確保同一批全成功或全回滾；批次插入取代逐筆 Create
+	newRecords := 0
+	if len(toInsertMap) > 0 {
+		toInsert := make([]models.Record, 0, len(toInsertMap))
+		for _, rec := range toInsertMap {
+			toInsert = append(toInsert, rec)
+		}
 		tx := db.DB.Begin()
-		for _, rec := range toInsert {
-			if err := tx.Create(&rec).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "寫入失敗，請重試"})
-				return
-			}
-			newRecords++
+		if err := tx.Create(&toInsert).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "寫入失敗，請重試"})
+			return
 		}
 		tx.Commit()
+		newRecords = len(toInsert)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

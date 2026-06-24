@@ -83,17 +83,28 @@ func PushPurchases(c *gin.Context) {
 	}
 
 	now := time.Now()
-	newCount, skipped := 0, 0
 	corrections := loadCorrectionMap()
+
+	// 批次查出已存在的 item_key，避免在迴圈中逐筆查詢
+	itemKeys := make([]string, 0, len(req.Purchases))
+	for _, p := range req.Purchases {
+		itemKeys = append(itemKeys, fmt.Sprintf("%s:%s:%s:%s", p.EntryID, p.MemberName, p.EventDate, p.Session))
+	}
+	existingSet := map[string]bool{}
+	if len(itemKeys) > 0 {
+		var existing []string
+		db.DB.Model(&models.Purchase{}).Where("item_key IN ?", itemKeys).Pluck("item_key", &existing)
+		for _, k := range existing {
+			existingSet[k] = true
+		}
+	}
+
+	skipped := 0
+	newPurchases := map[string]models.Purchase{} // key 為 item_key，同批重複取最後一筆
 
 	for _, p := range req.Purchases {
 		itemKey := fmt.Sprintf("%s:%s:%s:%s", p.EntryID, p.MemberName, p.EventDate, p.Session)
-
-		var exists int64
-		db.DB.Model(&models.Purchase{}).
-			Where("item_key = ?", itemKey).
-			Count(&exists)
-		if exists > 0 {
+		if existingSet[itemKey] {
 			skipped++
 			continue
 		}
@@ -122,14 +133,22 @@ func PushPurchases(c *gin.Context) {
 			ScrapedAt:    now,
 		}
 		if p.AppliedAt != "" {
-			t, err := time.Parse("2006-01-02 15:04:05", p.AppliedAt)
-			if err == nil {
+			if t, err := time.Parse("2006-01-02 15:04:05", p.AppliedAt); err == nil {
 				purchase.AppliedAt = &t
 			}
 		}
 
-		if err := db.DB.Create(&purchase).Error; err == nil {
-			newCount++
+		newPurchases[itemKey] = purchase
+	}
+
+	newCount := 0
+	if len(newPurchases) > 0 {
+		batch := make([]models.Purchase, 0, len(newPurchases))
+		for _, v := range newPurchases {
+			batch = append(batch, v)
+		}
+		if err := db.DB.Create(&batch).Error; err == nil {
+			newCount = len(batch)
 		}
 	}
 

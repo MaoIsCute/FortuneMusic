@@ -43,17 +43,45 @@ func PushFullRecords(c *gin.Context) {
 		return
 	}
 
-	newRecords, updated, skipped := 0, 0, 0
 	now := time.Now()
 
+	// 先依 order_id 分流，批次查出已存在的記錄，避免在迴圈中逐筆查詢
+	var signIDs, fullIDs []string
 	for _, r := range req.Records {
-		isSign := strings.Contains(r.OrderID, "_sign")
+		if strings.Contains(r.OrderID, "_sign") {
+			signIDs = append(signIDs, r.OrderID)
+		} else {
+			fullIDs = append(fullIDs, r.OrderID)
+		}
+	}
 
-		if isSign {
-			var existing models.SignEvent
-			if db.DB.Where("user_id = ? AND order_id = ?", user.ID, r.OrderID).First(&existing).Error == nil {
+	signMap := make(map[string]*models.SignEvent, len(signIDs))
+	if len(signIDs) > 0 {
+		var existing []models.SignEvent
+		db.DB.Where("user_id = ? AND order_id IN ?", user.ID, signIDs).Find(&existing)
+		for i := range existing {
+			signMap[existing[i].OrderID] = &existing[i]
+		}
+	}
+
+	fullMap := make(map[string]*models.FullRecord, len(fullIDs))
+	if len(fullIDs) > 0 {
+		var existing []models.FullRecord
+		db.DB.Where("user_id = ? AND order_id IN ?", user.ID, fullIDs).Find(&existing)
+		for i := range existing {
+			fullMap[existing[i].OrderID] = &existing[i]
+		}
+	}
+
+	updated, skipped := 0, 0
+	newSigns := map[string]models.SignEvent{}
+	newFulls := map[string]models.FullRecord{}
+
+	for _, r := range req.Records {
+		if strings.Contains(r.OrderID, "_sign") {
+			if existing, ok := signMap[r.OrderID]; ok {
 				if existing.AppliedCount != r.AppliedCount || existing.WonCount != r.WonCount {
-					db.DB.Model(&existing).Updates(map[string]any{
+					db.DB.Model(existing).Updates(map[string]any{
 						"applied_count": r.AppliedCount,
 						"won_count":     r.WonCount,
 					})
@@ -63,7 +91,7 @@ func PushFullRecords(c *gin.Context) {
 				}
 				continue
 			}
-			ev := models.SignEvent{
+			newSigns[r.OrderID] = models.SignEvent{
 				UserID:       user.ID,
 				OrderID:      r.OrderID,
 				Group:        r.Group,
@@ -76,17 +104,12 @@ func PushFullRecords(c *gin.Context) {
 				LotteryRound: r.LotteryRound,
 				ScrapedAt:    now,
 			}
-			if err := db.DB.Create(&ev).Error; err != nil {
-				continue
-			}
-			newRecords++
 			continue
 		}
 
-		var existing models.FullRecord
-		if db.DB.Where("user_id = ? AND order_id = ?", user.ID, r.OrderID).First(&existing).Error == nil {
+		if existing, ok := fullMap[r.OrderID]; ok {
 			if existing.AppliedCount != r.AppliedCount || existing.WonCount != r.WonCount {
-				db.DB.Model(&existing).Updates(map[string]any{
+				db.DB.Model(existing).Updates(map[string]any{
 					"applied_count": r.AppliedCount,
 					"won_count":     r.WonCount,
 				})
@@ -96,7 +119,7 @@ func PushFullRecords(c *gin.Context) {
 			}
 			continue
 		}
-		rec := models.FullRecord{
+		newFulls[r.OrderID] = models.FullRecord{
 			UserID:       user.ID,
 			OrderID:      r.OrderID,
 			Group:        r.Group,
@@ -113,10 +136,26 @@ func PushFullRecords(c *gin.Context) {
 			SourceURL:    r.SourceURL,
 			ScrapedAt:    now,
 		}
-		if err := db.DB.Create(&rec).Error; err != nil {
-			continue
+	}
+
+	newRecords := 0
+	if len(newSigns) > 0 {
+		batch := make([]models.SignEvent, 0, len(newSigns))
+		for _, v := range newSigns {
+			batch = append(batch, v)
 		}
-		newRecords++
+		if err := db.DB.Create(&batch).Error; err == nil {
+			newRecords += len(batch)
+		}
+	}
+	if len(newFulls) > 0 {
+		batch := make([]models.FullRecord, 0, len(newFulls))
+		for _, v := range newFulls {
+			batch = append(batch, v)
+		}
+		if err := db.DB.Create(&batch).Error; err == nil {
+			newRecords += len(batch)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
