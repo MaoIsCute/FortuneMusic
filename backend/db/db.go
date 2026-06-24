@@ -37,6 +37,31 @@ func Init(cfg *config.Config) {
 		`)
 	}
 
+	// title_corrections 補上 group 欄位，唯一鍵從 single_number 單欄改成 (group, single_number) 複合鍵（冪等）
+	// 既有資料的 group 設為空字串：不會跟任何真實 group 撞鍵，等於需要透過 admin 重新登記
+	DB.Exec(`
+		DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_name = 'title_corrections' AND column_name = 'group'
+			) THEN
+				ALTER TABLE title_corrections ADD COLUMN "group" varchar(255) NOT NULL DEFAULT '';
+			END IF;
+		END $$;
+	`)
+	DB.Exec(`
+		DO $$
+		DECLARE idx_name text;
+		BEGIN
+			SELECT indexname INTO idx_name FROM pg_indexes
+			WHERE tablename = 'title_corrections' AND indexdef LIKE '%UNIQUE%' AND indexdef LIKE '%(single_number)%';
+			IF idx_name IS NOT NULL THEN
+				EXECUTE 'DROP INDEX IF EXISTS ' || quote_ident(idx_name);
+			END IF;
+		END $$;
+	`)
+
 	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.SignEvent{}, &models.Purchase{}, &models.ScrapeLog{}, &models.TitleCorrection{}); err != nil {
 		log.Fatal("AutoMigrate failed:", err)
 	}

@@ -126,7 +126,7 @@ func PushRecords(c *gin.Context) {
 		}
 		singleName := r.SingleName
 		if strings.Contains(singleName, "タイトル未定") {
-			if corrected, ok := corrections[r.SingleNumber]; ok {
+			if corrected, ok := corrections[titleCorrectionKey{Group: r.Group, SingleNumber: r.SingleNumber}]; ok {
 				singleName = corrected
 			}
 		}
@@ -222,6 +222,7 @@ func CheckOrders(c *gin.Context) {
 func UpdateTitles(c *gin.Context) {
 	type TitleUpdate struct {
 		OrderID      string `json:"order_id"`
+		Group        string `json:"group"`
 		SingleName   string `json:"single_name"`
 		SingleNumber int    `json:"single_number"`
 	}
@@ -247,7 +248,7 @@ func UpdateTitles(c *gin.Context) {
 		}
 		singleName := u.SingleName
 		if strings.Contains(singleName, "タイトル未定") {
-			if corrected, ok := corrections[u.SingleNumber]; ok {
+			if corrected, ok := corrections[titleCorrectionKey{Group: u.Group, SingleNumber: u.SingleNumber}]; ok {
 				singleName = corrected
 			}
 		}

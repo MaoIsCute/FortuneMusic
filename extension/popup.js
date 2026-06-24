@@ -480,6 +480,7 @@ scrapeBtn.addEventListener('click', async () => {
           if (!singleName) return null
           return {
             order_id:      o.id,
+            group:         o.info?.group || '',
             single_name:   singleName,
             single_number: o.info?.singleNum ? parseInt(o.info.singleNum) : 0,
           }
@@ -850,6 +851,9 @@ async function scrapeEntryListPage(pageNum) {
       if (am) { info.albumNum = am[1]; info.albumSuffix = am[2] }
       if (titleM) info.albumTitle = titleM[1]
     }
+    if (/乃木坂46/.test(rowText))      info.group = 'nogizaka46'
+    else if (/櫻坂46/.test(rowText))   info.group = 'sakurazaka46'
+    else if (/日向坂46/.test(rowText)) info.group = 'hinatazaka46'
 
     entries.push({ id: orderNumber, urlId, info })
   })
@@ -938,6 +942,7 @@ async function fetchEntryDetailItems(entries) {
 
       aggregated[key] = {
         entry_id:      id,
+        group:         info?.group || '',
         order_number:  info?.orderNumber || '',
         member_name:   memberName,
         event_date:    `${eventYear}/${rawDate}`,

@@ -8,6 +8,7 @@ type Purchase struct {
 	User         User       `gorm:"foreignKey:UserID" json:"-"`
 	ItemKey      string     `gorm:"uniqueIndex;not null" json:"item_key"`
 	EntryID      string     `gorm:"index;not null" json:"entry_id"`
+	Group        string     `json:"group"`
 	OrderNumber  string     `json:"order_number"`
 	MemberName   string     `gorm:"not null" json:"member_name"`
 	EventDate    string     `gorm:"not null" json:"event_date"`

@@ -16,6 +16,7 @@ import (
 
 type purchaseInput struct {
 	EntryID      string `json:"entry_id"`
+	Group        string `json:"group"`
 	OrderNumber  string `json:"order_number"`
 	MemberName   string `json:"member_name"`
 	EventDate    string `json:"event_date"`
@@ -111,7 +112,7 @@ func PushPurchases(c *gin.Context) {
 
 		singleName := p.SingleName
 		if strings.Contains(singleName, "タイトル未定") {
-			if corrected, ok := corrections[p.SingleNumber]; ok {
+			if corrected, ok := corrections[titleCorrectionKey{Group: p.Group, SingleNumber: p.SingleNumber}]; ok {
 				singleName = corrected
 			}
 		}
@@ -120,6 +121,7 @@ func PushPurchases(c *gin.Context) {
 			UserID:       user.ID,
 			ItemKey:      itemKey,
 			EntryID:      p.EntryID,
+			Group:        p.Group,
 			OrderNumber:  p.OrderNumber,
 			MemberName:   strings.ReplaceAll(p.MemberName, "　", ""),
 			EventDate:    p.EventDate,

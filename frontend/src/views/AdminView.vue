@@ -142,6 +142,9 @@
         </template>
         <div v-if="issues.length === 0" class="empty">目前沒有 タイトル未定 的紀錄</div>
         <el-table v-else :data="issues" stripe>
+          <el-table-column label="團體" width="90">
+            <template #default="{ row }">{{ groupLabel(row.group) }}</template>
+          </el-table-column>
           <el-table-column label="單曲號" width="80">
             <template #default="{ row }">{{ row.single_number }}</template>
           </el-table-column>
@@ -158,6 +161,17 @@
             </template>
           </el-table-column>
         </el-table>
+
+        <div class="bulk-title-section">
+          <p class="sub-text">批次登記已知單曲名稱（不需要先出現 タイトル未定 問題），一行一筆，格式：<code>團體代碼,單曲號,單曲名稱</code>，團體代碼為 nogizaka46 / sakurazaka46 / hinatazaka46</p>
+          <el-input
+            v-model="bulkTitleText"
+            type="textarea"
+            :rows="6"
+            placeholder="nogizaka46,42,42ndシングル『○○○』&#10;sakurazaka46,8,8thシングル『○○○』"
+          />
+          <el-button type="primary" :loading="bulkLoading" style="margin-top:8px" @click="submitBulkTitles">批次送出</el-button>
+        </div>
       </el-collapse-item>
 
       <!-- 抓取紀錄 -->
@@ -245,7 +259,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminTitleIssues, fixSingleTitle, getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, previewUserRecords, previewUserFullRecords, previewUserPurchases, getAdminScrapeLogs, getAdminSignEvents } from '../api/index'
+import { getAdminTitleIssues, fixSingleTitle, bulkSetTitles, getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, previewUserRecords, previewUserFullRecords, previewUserPurchases, getAdminScrapeLogs, getAdminSignEvents } from '../api/index'
 import { useImpersonateStore } from '../stores/impersonate'
 import { useDataStore } from '../stores/data'
 
@@ -377,13 +391,62 @@ async function fix(row) {
   }
   row._loading = true
   try {
-    const res = await fixSingleTitle(row.single_number, row._input.trim())
+    const res = await fixSingleTitle(row.group, row.single_number, row._input.trim())
     ElMessage.success(`已更新 ${res.data.updated} 筆`)
     await loadIssues()
   } catch (e) {
     ElMessage.error(e.response?.data?.error || '更新失敗')
   } finally {
     row._loading = false
+  }
+}
+
+const GROUP_LABELS = { nogizaka46: '乃木坂46', sakurazaka46: '櫻坂46', hinatazaka46: '日向坂46' }
+function groupLabel(g) {
+  return GROUP_LABELS[g] || g || '—'
+}
+
+const bulkTitleText = ref('')
+const bulkLoading    = ref(false)
+
+async function submitBulkTitles() {
+  const lines = bulkTitleText.value.split('\n').map(l => l.trim()).filter(Boolean)
+  if (lines.length === 0) {
+    ElMessage.warning('請輸入至少一行')
+    return
+  }
+
+  const titles = []
+  for (const line of lines) {
+    const parts = line.split(',')
+    if (parts.length < 3) {
+      ElMessage.error(`格式錯誤：${line}`)
+      return
+    }
+    const group = parts[0].trim()
+    const singleNumber = parseInt(parts[1].trim())
+    const singleName = parts.slice(2).join(',').trim()
+    if (!GROUP_LABELS[group]) {
+      ElMessage.error(`團體代碼不正確：${group}`)
+      return
+    }
+    if (isNaN(singleNumber) || !singleName) {
+      ElMessage.error(`格式錯誤：${line}`)
+      return
+    }
+    titles.push({ group, single_number: singleNumber, single_name: singleName })
+  }
+
+  bulkLoading.value = true
+  try {
+    const res = await bulkSetTitles(titles)
+    ElMessage.success(`已登記 ${res.data.applied} 筆，回填更新 ${res.data.updated} 筆`)
+    bulkTitleText.value = ''
+    await loadIssues()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '批次送出失敗')
+  } finally {
+    bulkLoading.value = false
   }
 }
 
@@ -475,6 +538,8 @@ onMounted(() => {
 .empty { color: #999; text-align: center; padding: 32px 0; }
 .delete-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .sub-text { font-size: 11px; color: #999; }
+.bulk-title-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid #ebeef5; }
+.bulk-title-section .sub-text { display: block; margin-bottom: 8px; }
 .tag-ok    { color: #059669; font-size: 13px; }
 .tag-error { color: #dc2626; font-size: 13px; }
 .tag-won   { color: #52c41a; font-weight: bold; }

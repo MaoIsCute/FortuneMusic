@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+// titleCorrectionKey 同時以 group + single_number 識別一張單曲，避免不同團體的單曲號互相覆蓋
+type titleCorrectionKey struct {
+	Group        string
+	SingleNumber int
+}
 
 var configuredAdminEmail string
 
@@ -30,6 +37,7 @@ func checkAdmin(c *gin.Context) bool {
 }
 
 type TitleIssue struct {
+	Group         string `json:"group"`
 	SingleNumber  int    `json:"single_number"`
 	CurrentName   string `json:"current_name"`
 	SuggestedName string `json:"suggested_name"`
@@ -42,76 +50,83 @@ func GetTitleIssues(c *gin.Context) {
 	}
 
 	type issueRow struct {
+		Group        string
 		SingleNumber int
 		SingleName   string
 		Count        int64
 	}
 
-	// 合併個握 + 購入的 タイトル未定（所有使用者）
-	countMap := map[int]int64{}
-	nameMap := map[int]string{}
+	// 合併個握 + 購入的 タイトル未定（所有使用者），依 (group, single_number) 分組避免跨團體混淆
+	countMap := map[titleCorrectionKey]int64{}
+	nameMap := map[titleCorrectionKey]string{}
 
 	var recIssues []issueRow
 	db.DB.Model(&models.Record{}).
-		Select("single_number, single_name, COUNT(*) as count").
+		Select(`"group", single_number, single_name, COUNT(*) as count`).
 		Where("single_name LIKE ?", "%タイトル未定%").
-		Group("single_number, single_name").
+		Group(`"group", single_number, single_name`).
 		Scan(&recIssues)
 	for _, r := range recIssues {
-		countMap[r.SingleNumber] += r.Count
-		nameMap[r.SingleNumber] = r.SingleName
+		key := titleCorrectionKey{Group: r.Group, SingleNumber: r.SingleNumber}
+		countMap[key] += r.Count
+		nameMap[key] = r.SingleName
 	}
 
 	var purIssues []issueRow
 	db.DB.Model(&models.Purchase{}).
-		Select("single_number, single_name, COUNT(*) as count").
+		Select(`"group", single_number, single_name, COUNT(*) as count`).
 		Where("single_name LIKE ?", "%タイトル未定%").
-		Group("single_number, single_name").
+		Group(`"group", single_number, single_name`).
 		Scan(&purIssues)
 	for _, r := range purIssues {
-		countMap[r.SingleNumber] += r.Count
-		if _, exists := nameMap[r.SingleNumber]; !exists {
-			nameMap[r.SingleNumber] = r.SingleName
+		key := titleCorrectionKey{Group: r.Group, SingleNumber: r.SingleNumber}
+		countMap[key] += r.Count
+		if _, exists := nameMap[key]; !exists {
+			nameMap[key] = r.SingleName
 		}
 	}
 
 	// 建議名稱：先查 title_corrections，再從現有正確記錄推測
 	corrections := loadCorrectionMap()
 	type correctRow struct {
+		Group        string
 		SingleNumber int
 		SingleName   string
 	}
 	var corrects []correctRow
 	db.DB.Model(&models.Record{}).
-		Select("single_number, single_name").
+		Select(`"group", single_number, single_name`).
 		Where("single_name NOT LIKE ? AND single_name != ''", "%タイトル未定%").
-		Group("single_number, single_name").
+		Group(`"group", single_number, single_name`).
 		Scan(&corrects)
-	suggestMap := map[int]string{}
-	for sn, name := range corrections {
-		suggestMap[sn] = name
+	suggestMap := map[titleCorrectionKey]string{}
+	for key, name := range corrections {
+		suggestMap[key] = name
 	}
 	for _, r := range corrects {
-		if _, exists := suggestMap[r.SingleNumber]; !exists {
-			suggestMap[r.SingleNumber] = r.SingleName
+		key := titleCorrectionKey{Group: r.Group, SingleNumber: r.SingleNumber}
+		if _, exists := suggestMap[key]; !exists {
+			suggestMap[key] = r.SingleName
 		}
 	}
 
 	result := make([]TitleIssue, 0, len(countMap))
-	for sn, count := range countMap {
+	for key, count := range countMap {
 		result = append(result, TitleIssue{
-			SingleNumber:  sn,
-			CurrentName:   nameMap[sn],
-			SuggestedName: suggestMap[sn],
+			Group:         key.Group,
+			SingleNumber:  key.SingleNumber,
+			CurrentName:   nameMap[key],
+			SuggestedName: suggestMap[key],
 			Count:         count,
 		})
 	}
-	// 依單曲號排序
-	for i := 1; i < len(result); i++ {
-		for j := i; j > 0 && result[j].SingleNumber < result[j-1].SingleNumber; j-- {
-			result[j], result[j-1] = result[j-1], result[j]
+	// 依團體、單曲號排序
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Group != result[j].Group {
+			return result[i].Group < result[j].Group
 		}
-	}
+		return result[i].SingleNumber < result[j].SingleNumber
+	})
 
 	c.JSON(http.StatusOK, result)
 }
@@ -287,12 +302,12 @@ func GetAdminSignEvents(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": rows, "total": total})
 }
 
-func loadCorrectionMap() map[int]string {
+func loadCorrectionMap() map[titleCorrectionKey]string {
 	var corrections []models.TitleCorrection
 	db.DB.Find(&corrections)
-	m := make(map[int]string, len(corrections))
+	m := make(map[titleCorrectionKey]string, len(corrections))
 	for _, c := range corrections {
-		m[c.SingleNumber] = c.SingleName
+		m[titleCorrectionKey{Group: c.Group, SingleNumber: c.SingleNumber}] = c.SingleName
 	}
 	return m
 }
@@ -303,11 +318,12 @@ func FixSingleTitle(c *gin.Context) {
 	}
 
 	var req struct {
+		Group        string `json:"group" binding:"required"`
 		SingleNumber int    `json:"single_number" binding:"required"`
 		SingleName   string `json:"single_name" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "請提供 single_number 與 single_name"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "請提供 group、single_number 與 single_name"})
 		return
 	}
 	if strings.Contains(req.SingleName, "タイトル未定") {
@@ -315,20 +331,64 @@ func FixSingleTitle(c *gin.Context) {
 		return
 	}
 
-	// 同時更新個握 + 購入（所有使用者）
+	// 同時更新個握 + 購入（所有使用者），限定同一 group 避免跨團體誤改
 	recResult := db.DB.Model(&models.Record{}).
-		Where("single_number = ? AND single_name LIKE ?", req.SingleNumber, "%タイトル未定%").
+		Where(`"group" = ? AND single_number = ? AND single_name LIKE ?`, req.Group, req.SingleNumber, "%タイトル未定%").
 		Update("single_name", req.SingleName)
 	purResult := db.DB.Model(&models.Purchase{}).
-		Where("single_number = ? AND single_name LIKE ?", req.SingleNumber, "%タイトル未定%").
+		Where(`"group" = ? AND single_number = ? AND single_name LIKE ?`, req.Group, req.SingleNumber, "%タイトル未定%").
 		Update("single_name", req.SingleName)
 
 	// 儲存對照表供未來自動套用
-	db.DB.Where(models.TitleCorrection{SingleNumber: req.SingleNumber}).
+	db.DB.Where(models.TitleCorrection{Group: req.Group, SingleNumber: req.SingleNumber}).
 		Assign(models.TitleCorrection{SingleName: req.SingleName}).
 		FirstOrCreate(&models.TitleCorrection{})
 
 	c.JSON(http.StatusOK, gin.H{"updated": recResult.RowsAffected + purResult.RowsAffected})
+}
+
+// BulkSetTitles 一次登記多筆已知的單曲名稱（不需要先出現 タイトル未定 問題），
+// 同時回填既有的 タイトル未定 紀錄，預防舊單曲之後被任何人抓到時顯示未定。
+func BulkSetTitles(c *gin.Context) {
+	if !checkAdmin(c) {
+		return
+	}
+
+	type titleEntry struct {
+		Group        string `json:"group" binding:"required"`
+		SingleNumber int    `json:"single_number"`
+		SingleName   string `json:"single_name" binding:"required"`
+	}
+	var req struct {
+		Titles []titleEntry `json:"titles" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "請提供 titles 陣列"})
+		return
+	}
+
+	var updated int64
+	applied := 0
+	for _, t := range req.Titles {
+		if t.Group == "" || strings.Contains(t.SingleName, "タイトル未定") || t.SingleName == "" {
+			continue
+		}
+
+		recResult := db.DB.Model(&models.Record{}).
+			Where(`"group" = ? AND single_number = ? AND single_name LIKE ?`, t.Group, t.SingleNumber, "%タイトル未定%").
+			Update("single_name", t.SingleName)
+		purResult := db.DB.Model(&models.Purchase{}).
+			Where(`"group" = ? AND single_number = ? AND single_name LIKE ?`, t.Group, t.SingleNumber, "%タイトル未定%").
+			Update("single_name", t.SingleName)
+		updated += recResult.RowsAffected + purResult.RowsAffected
+
+		db.DB.Where(models.TitleCorrection{Group: t.Group, SingleNumber: t.SingleNumber}).
+			Assign(models.TitleCorrection{SingleName: t.SingleName}).
+			FirstOrCreate(&models.TitleCorrection{})
+		applied++
+	}
+
+	c.JSON(http.StatusOK, gin.H{"applied": applied, "updated": updated})
 }
 
 func GetPurchaseTitleIssues(c *gin.Context) {
