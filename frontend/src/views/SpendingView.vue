@@ -57,29 +57,41 @@
       <div v-if="tree.length === 0" class="empty">尚無資料</div>
 
       <el-collapse v-else accordion>
-        <el-collapse-item v-for="s in tree" :key="`${s.single_number}:${s.single_name}`" :name="`${s.single_number}:${s.single_name}`">
+        <el-collapse-item v-for="g in tree" :key="g.group" :name="g.group">
           <template #title>
-            <div class="tree-title">
-              <span class="tree-name">{{ formatSingle(s.single_name) }}</span>
-              <span class="tree-meta">¥{{ s.total_amount.toLocaleString() }} &nbsp;/&nbsp; {{ s.total_quantity }}張</span>
+            <div class="tree-title group-title">
+              <span class="tree-name">{{ groupLabel(g.group) }}</span>
+              <span class="tree-meta">¥{{ g.total_amount.toLocaleString() }} &nbsp;/&nbsp; {{ g.total_quantity }}張</span>
             </div>
           </template>
 
-          <!-- 抽次層 -->
+          <!-- 單曲層 -->
           <el-collapse accordion class="inner-collapse">
-            <el-collapse-item v-for="r in s.rounds" :key="r.lottery_round" :name="r.lottery_round">
+            <el-collapse-item v-for="s in g.singles" :key="`${s.single_number}:${s.single_name}`" :name="`${s.single_number}:${s.single_name}`">
               <template #title>
-                <div class="tree-title round-title">
-                  <span class="tree-name">{{ formatRound(r.lottery_round) }}</span>
-                  <span class="tree-meta">¥{{ r.total_amount.toLocaleString() }} &nbsp;/&nbsp; {{ r.total_quantity }}張</span>
+                <div class="tree-title">
+                  <span class="tree-name">{{ formatSingle(s.single_name) }}</span>
+                  <span class="tree-meta">¥{{ s.total_amount.toLocaleString() }} &nbsp;/&nbsp; {{ s.total_quantity }}張</span>
                 </div>
               </template>
 
-              <!-- 成員層 -->
-              <div v-for="m in r.members" :key="m.member_name" class="member-row">
-                <span class="member-name">{{ m.member_name }}</span>
-                <span class="member-meta">¥{{ m.total_amount.toLocaleString() }} &nbsp;/&nbsp; {{ m.total_quantity }}張</span>
-              </div>
+              <!-- 抽次層 -->
+              <el-collapse accordion class="inner-collapse">
+                <el-collapse-item v-for="r in s.rounds" :key="r.lottery_round" :name="r.lottery_round">
+                  <template #title>
+                    <div class="tree-title round-title">
+                      <span class="tree-name">{{ formatRound(r.lottery_round) }}</span>
+                      <span class="tree-meta">¥{{ r.total_amount.toLocaleString() }} &nbsp;/&nbsp; {{ r.total_quantity }}張</span>
+                    </div>
+                  </template>
+
+                  <!-- 成員層 -->
+                  <div v-for="m in r.members" :key="m.member_name" class="member-row">
+                    <span class="member-name">{{ m.member_name }}</span>
+                    <span class="member-meta">¥{{ m.total_amount.toLocaleString() }} &nbsp;/&nbsp; {{ m.total_quantity }}張</span>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
             </el-collapse-item>
           </el-collapse>
         </el-collapse-item>
@@ -128,8 +140,15 @@ const TOP_N = 5
 const singleShowAll = ref(false)
 const memberShowAll = ref(false)
 
+const GROUP_LABELS = { nogizaka46: '乃木坂46', sakurazaka46: '櫻坂46', hinatazaka46: '日向坂46' }
+function groupLabel(g) {
+  return GROUP_LABELS[g] || g || '—'
+}
+
+const allSingles = computed(() => tree.value.flatMap(g => g.singles))
+
 const singleChartData = computed(() =>
-  [...tree.value]
+  [...allSingles.value]
     .sort((a, b) => b.total_amount - a.total_amount)
     .map(s => ({ name: formatSingle(s.single_name) || `第${s.single_number}單`, value: s.total_amount }))
 )
@@ -233,6 +252,7 @@ onMounted(load)
 .tree-name { font-weight: 500; }
 .tree-meta { color: #888; font-size: 13px; white-space: nowrap; }
 
+.group-title .tree-name { font-weight: 700; font-size: 15px; }
 .round-title .tree-name { font-weight: normal; color: #555; }
 
 .inner-collapse { margin: 0; }

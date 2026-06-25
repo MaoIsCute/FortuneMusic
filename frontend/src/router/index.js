@@ -14,7 +14,11 @@ const routes = [
   { path: '/full/analysis', name: 'FullAnalysis', component: () => import('../views/FullAnalysisView.vue') },
   { path: '/spending', name: 'Spending', component: () => import('../views/SpendingView.vue') },
   { path: '/scrape', name: 'Scrape', component: () => import('../views/ScrapeView.vue') },
-  { path: '/admin', name: 'Admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
+  { path: '/admin', redirect: '/admin/users' },
+  { path: '/admin/users', name: 'AdminUsers', component: () => import('../views/AdminUsersView.vue'), meta: { admin: true } },
+  { path: '/admin/maintenance', name: 'AdminMaintenance', component: () => import('../views/AdminMaintenanceView.vue'), meta: { admin: true } },
+  { path: '/admin/titles', name: 'AdminTitles', component: () => import('../views/AdminTitlesView.vue'), meta: { admin: true } },
+  { path: '/admin/sign-events', name: 'AdminSignEvents', component: () => import('../views/AdminSignEventsView.vue'), meta: { admin: true } },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
 ]
 

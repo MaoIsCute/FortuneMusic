@@ -23,7 +23,16 @@
       </div>
 
       <router-link to="/scrape">同步工具</router-link>
-      <router-link v-if="isAdmin" to="/admin">管理</router-link>
+
+      <div v-if="isAdmin" class="nav-group">
+        <a :class="{ 'router-link-active': isAdminActive }" @click.stop="toggle('admin')">管理 ▾</a>
+        <div v-show="openMenu === 'admin'" class="nav-menu">
+          <a @click="go('/admin/users')">使用者管理</a>
+          <a @click="go('/admin/maintenance')">資料維護</a>
+          <a @click="go('/admin/titles')">單曲名稱</a>
+          <a @click="go('/admin/sign-events')">簽名會紀錄</a>
+        </div>
+      </div>
     </div>
     <div class="actions">
       <el-switch v-model="isDark" @change="themeStore.toggleDark()" active-text="🌙" inactive-text="☀️" />
@@ -47,6 +56,7 @@ const isDark = computed(() => themeStore.isDark)
 const isAdmin = computed(() => !!auth.user?.is_admin)
 const isRecordsActive = computed(() => ['/records', '/spending', '/records/analysis'].includes(route.path))
 const isFullActive    = computed(() => ['/full', '/full/spending', '/full/analysis'].includes(route.path))
+const isAdminActive   = computed(() => route.path.startsWith('/admin'))
 
 const openMenu = ref(null)
 

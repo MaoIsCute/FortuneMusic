@@ -84,7 +84,7 @@ func PushPurchases(c *gin.Context) {
 	}
 
 	now := time.Now()
-	corrections := loadCorrectionMap()
+	corrections := loadTitleMap()
 
 	// 批次查出已存在的 item_key，避免在迴圈中逐筆查詢
 	itemKeys := make([]string, 0, len(req.Purchases))
@@ -111,8 +111,8 @@ func PushPurchases(c *gin.Context) {
 		}
 
 		singleName := p.SingleName
-		if strings.Contains(singleName, "タイトル未定") {
-			if corrected, ok := corrections[titleCorrectionKey{Group: p.Group, SingleNumber: p.SingleNumber}]; ok {
+		if singleName == "" || strings.Contains(singleName, "タイトル未定") {
+			if corrected, ok := corrections[titleKey{Group: p.Group, SingleNumber: p.SingleNumber}]; ok {
 				singleName = corrected
 			}
 		}
@@ -247,7 +247,7 @@ func GetPurchaseStatsByMember(c *gin.Context) {
 	c.JSON(http.StatusOK, rows)
 }
 
-// ─── 樹狀統計（單曲 → 抽次 → 成員）────────────────────────────────────────────
+// ─── 樹狀統計（團體 → 單曲 → 抽次 → 成員）──────────────────────────────────────
 
 type treeMember struct {
 	MemberName    string `json:"member_name"`
@@ -270,6 +270,13 @@ type treeSingle struct {
 	Rounds        []treeRound `json:"rounds"`
 }
 
+type treeGroup struct {
+	Group         string       `json:"group"`
+	TotalAmount   int64        `json:"total_amount"`
+	TotalQuantity int64        `json:"total_quantity"`
+	Singles       []treeSingle `json:"singles"`
+}
+
 func GetPurchaseTree(c *gin.Context) {
 	userID := getUserID(c)
 
@@ -278,26 +285,46 @@ func GetPurchaseTree(c *gin.Context) {
 		Order("lottery_round ASC, member_name ASC").
 		Find(&purchases)
 
-	singleOrder := []string{}
-	singleMap := map[string]*treeSingle{}
-	singleMinTime := map[string]*time.Time{}
+	groupOrder := []string{}
+	groupMap := map[string]*treeGroup{}
+	groupMinTime := map[string]*time.Time{}
+	singleOrder := map[string][]string{}
+	singleMap := map[string]map[string]*treeSingle{}
+	singleMinTime := map[string]map[string]*time.Time{}
 
 	for _, p := range purchases {
+		g := p.Group
+		if _, ok := groupMap[g]; !ok {
+			groupMap[g] = &treeGroup{Group: g}
+			groupOrder = append(groupOrder, g)
+			singleOrder[g] = []string{}
+			singleMap[g] = map[string]*treeSingle{}
+			singleMinTime[g] = map[string]*time.Time{}
+		}
+		grp := groupMap[g]
+		grp.TotalAmount += int64(p.Subtotal)
+		grp.TotalQuantity += int64(p.Quantity)
+		if p.AppliedAt != nil {
+			if groupMinTime[g] == nil || p.AppliedAt.Before(*groupMinTime[g]) {
+				groupMinTime[g] = p.AppliedAt
+			}
+		}
+
 		sk := fmt.Sprintf("%d\x00%s", p.SingleNumber, p.SingleName)
-		if _, ok := singleMap[sk]; !ok {
-			singleMap[sk] = &treeSingle{
+		if _, ok := singleMap[g][sk]; !ok {
+			singleMap[g][sk] = &treeSingle{
 				SingleNumber: p.SingleNumber,
 				SingleName:   p.SingleName,
 			}
-			singleOrder = append(singleOrder, sk)
+			singleOrder[g] = append(singleOrder[g], sk)
 		}
-		s := singleMap[sk]
+		s := singleMap[g][sk]
 		s.TotalAmount += int64(p.Subtotal)
 		s.TotalQuantity += int64(p.Quantity)
 
 		if p.AppliedAt != nil {
-			if singleMinTime[sk] == nil || p.AppliedAt.Before(*singleMinTime[sk]) {
-				singleMinTime[sk] = p.AppliedAt
+			if singleMinTime[g][sk] == nil || p.AppliedAt.Before(*singleMinTime[g][sk]) {
+				singleMinTime[g][sk] = p.AppliedAt
 			}
 		}
 
@@ -332,25 +359,34 @@ func GetPurchaseTree(c *gin.Context) {
 		s.Rounds[ri].Members[mi].TotalQuantity += int64(p.Quantity)
 	}
 
-	// 依最早購買時間 DESC（新的在前）排序
-	sort.Slice(singleOrder, func(i, j int) bool {
-		ti := singleMinTime[singleOrder[i]]
-		tj := singleMinTime[singleOrder[j]]
-		if ti == nil && tj == nil {
-			return false
-		}
-		if ti == nil {
-			return false
-		}
-		if tj == nil {
-			return true
-		}
-		return ti.After(*tj)
-	})
+	// 依最早購買時間 DESC（新的在前）排序的共用 helper
+	byMinTimeDesc := func(keys []string, minTime map[string]*time.Time) {
+		sort.Slice(keys, func(i, j int) bool {
+			ti := minTime[keys[i]]
+			tj := minTime[keys[j]]
+			if ti == nil && tj == nil {
+				return false
+			}
+			if ti == nil {
+				return false
+			}
+			if tj == nil {
+				return true
+			}
+			return ti.After(*tj)
+		})
+	}
 
-	result := make([]treeSingle, 0, len(singleOrder))
-	for _, k := range singleOrder {
-		result = append(result, *singleMap[k])
+	byMinTimeDesc(groupOrder, groupMinTime)
+
+	result := make([]treeGroup, 0, len(groupOrder))
+	for _, g := range groupOrder {
+		byMinTimeDesc(singleOrder[g], singleMinTime[g])
+		grp := groupMap[g]
+		for _, sk := range singleOrder[g] {
+			grp.Singles = append(grp.Singles, *singleMap[g][sk])
+		}
+		result = append(result, *grp)
 	}
 	c.JSON(http.StatusOK, result)
 }

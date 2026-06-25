@@ -37,16 +37,37 @@ func Init(cfg *config.Config) {
 		`)
 	}
 
-	// title_corrections 補上 group 欄位，唯一鍵從 single_number 單欄改成 (group, single_number) 複合鍵（冪等）
+	// title_corrections 改名為 titles：原本只是「タイトル未定修正對照表」，現在當成主動維護的單曲名稱主表用（一次性，保留既有資料）
+	DB.Exec(`
+		DO $$
+		BEGIN
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'title_corrections')
+			   AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'titles') THEN
+				ALTER TABLE title_corrections RENAME TO titles;
+			END IF;
+		END $$;
+	`)
+	DB.Exec(`
+		DO $$
+		BEGIN
+			IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_title_correction_group_single')
+			   AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_title_group_single') THEN
+				ALTER INDEX idx_title_correction_group_single RENAME TO idx_title_group_single;
+			END IF;
+		END $$;
+	`)
+
+	// titles 補上 group 欄位，唯一鍵從 single_number 單欄改成 (group, single_number) 複合鍵（冪等，相容更早期沒有 group 欄位的資料）
 	// 既有資料的 group 設為空字串：不會跟任何真實 group 撞鍵，等於需要透過 admin 重新登記
 	DB.Exec(`
 		DO $$
 		BEGIN
-			IF NOT EXISTS (
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'titles')
+			   AND NOT EXISTS (
 				SELECT 1 FROM information_schema.columns
-				WHERE table_name = 'title_corrections' AND column_name = 'group'
-			) THEN
-				ALTER TABLE title_corrections ADD COLUMN "group" varchar(255) NOT NULL DEFAULT '';
+				WHERE table_name = 'titles' AND column_name = 'group'
+			   ) THEN
+				ALTER TABLE titles ADD COLUMN "group" varchar(255) NOT NULL DEFAULT '';
 			END IF;
 		END $$;
 	`)
@@ -55,14 +76,14 @@ func Init(cfg *config.Config) {
 		DECLARE idx_name text;
 		BEGIN
 			SELECT indexname INTO idx_name FROM pg_indexes
-			WHERE tablename = 'title_corrections' AND indexdef LIKE '%UNIQUE%' AND indexdef LIKE '%(single_number)%';
+			WHERE tablename = 'titles' AND indexdef LIKE '%UNIQUE%' AND indexdef LIKE '%(single_number)%';
 			IF idx_name IS NOT NULL THEN
 				EXECUTE 'DROP INDEX IF EXISTS ' || quote_ident(idx_name);
 			END IF;
 		END $$;
 	`)
 
-	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.SignEvent{}, &models.Purchase{}, &models.ScrapeLog{}, &models.TitleCorrection{}); err != nil {
+	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.SignEvent{}, &models.Purchase{}, &models.ScrapeLog{}, &models.Title{}); err != nil {
 		log.Fatal("AutoMigrate failed:", err)
 	}
 

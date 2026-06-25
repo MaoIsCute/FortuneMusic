@@ -880,7 +880,9 @@ async function fetchEntryDetailItems(entries) {
       if (info.albumTitle) s += `『${info.albumTitle}』`
       return s
     }
-    return ''
+    // 不符合シングル/アルバム規則時（如 DVD/寫真集發售紀念等個握商品），
+    // fallback 回傳 entry_list 抓到的原始商品名稱，避免變成空字串
+    return info.description || ''
   }
 
   async function fetchSingle({ id, urlId, info }) {

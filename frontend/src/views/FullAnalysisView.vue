@@ -23,14 +23,14 @@
       <!-- 類型分析 -->
       <el-collapse-item v-if="byType.length" name="type">
         <template #title><span class="collapse-title">類型分析</span></template>
-        <el-table :data="byType" stripe>
-          <el-table-column prop="event_type" label="類型" width="80" />
-          <el-table-column label="場地" width="80">
+        <el-table table-layout="auto" :data="byType" stripe>
+          <el-table-column prop="event_type" label="類型" min-width="60" />
+          <el-table-column label="場地" min-width="200">
             <template #default="{ row }">{{ row.venue || '—' }}</template>
           </el-table-column>
-          <el-table-column prop="total_applied" label="應募" width="80" />
-          <el-table-column prop="total_won" label="中選" width="80" />
-          <el-table-column label="中選率" width="90">
+          <el-table-column prop="total_applied" label="應募" min-width="70" />
+          <el-table-column prop="total_won" label="中選" min-width="70" />
+          <el-table-column label="中選率" min-width="80">
             <template #default="{ row }">
               <span :class="rateClass(row.win_rate)">{{ row.win_rate }}%</span>
             </template>
@@ -243,6 +243,7 @@ function formatSingle(name) {
 
 <style scoped>
 .page { background: #f5f7fa; min-height: 100vh; }
+:deep(.el-table .cell) { white-space: nowrap; }
 
 .stats-grid {
   display: flex;

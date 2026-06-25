@@ -98,7 +98,7 @@ func PushRecords(c *gin.Context) {
 	}
 
 	now := time.Now()
-	corrections := loadCorrectionMap()
+	corrections := loadTitleMap()
 
 	// 批次查出已存在的 source_url，避免在迴圈中逐筆查詢
 	sourceURLs := make([]string, 0, len(req.Records))
@@ -125,8 +125,8 @@ func PushRecords(c *gin.Context) {
 			continue
 		}
 		singleName := r.SingleName
-		if strings.Contains(singleName, "タイトル未定") {
-			if corrected, ok := corrections[titleCorrectionKey{Group: r.Group, SingleNumber: r.SingleNumber}]; ok {
+		if singleName == "" || strings.Contains(singleName, "タイトル未定") {
+			if corrected, ok := corrections[titleKey{Group: r.Group, SingleNumber: r.SingleNumber}]; ok {
 				singleName = corrected
 			}
 		}
@@ -240,15 +240,15 @@ func UpdateTitles(c *gin.Context) {
 		return
 	}
 
-	corrections := loadCorrectionMap()
+	corrections := loadTitleMap()
 	updated := 0
 	for _, u := range req.Updates {
 		if u.SingleName == "" {
 			continue
 		}
 		singleName := u.SingleName
-		if strings.Contains(singleName, "タイトル未定") {
-			if corrected, ok := corrections[titleCorrectionKey{Group: u.Group, SingleNumber: u.SingleNumber}]; ok {
+		if singleName == "" || strings.Contains(singleName, "タイトル未定") {
+			if corrected, ok := corrections[titleKey{Group: u.Group, SingleNumber: u.SingleNumber}]; ok {
 				singleName = corrected
 			}
 		}
