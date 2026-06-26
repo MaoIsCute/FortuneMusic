@@ -15,6 +15,10 @@ import (
 	"gorm.io/gorm"
 )
 
+func normalizeMember(name string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(name), " ", ""), "　", "")
+}
+
 // titleKey 同時以 group + single_number 識別一張單曲，避免不同團體的單曲號互相覆蓋
 type titleKey struct {
 	Group        string
@@ -561,6 +565,22 @@ func GetPurchaseTitleIssues(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+func NormalizeMemberNames(c *gin.Context) {
+	if !checkAdmin(c) {
+		return
+	}
+	r1 := db.DB.Exec(`UPDATE records SET member_name = REPLACE(REPLACE(member_name, ' ', ''), '　', '') WHERE member_name LIKE '% %' OR member_name LIKE '%　%'`)
+	r2 := db.DB.Exec(`UPDATE purchases SET member_name = REPLACE(REPLACE(member_name, ' ', ''), '　', ''), item_key = REPLACE(REPLACE(item_key, ' ', ''), '　', '') WHERE member_name LIKE '% %' OR member_name LIKE '%　%'`)
+	r3 := db.DB.Exec(`UPDATE full_records SET member_name = REPLACE(REPLACE(member_name, ' ', ''), '　', '') WHERE member_name LIKE '% %' OR member_name LIKE '%　%'`)
+	r4 := db.DB.Exec(`UPDATE sign_events SET member_name = REPLACE(REPLACE(member_name, ' ', ''), '　', '') WHERE member_name LIKE '% %' OR member_name LIKE '%　%'`)
+	c.JSON(http.StatusOK, gin.H{
+		"records":      r1.RowsAffected,
+		"purchases":    r2.RowsAffected,
+		"full_records": r3.RowsAffected,
+		"sign_events":  r4.RowsAffected,
+	})
 }
 
 func FixPurchaseTitle(c *gin.Context) {

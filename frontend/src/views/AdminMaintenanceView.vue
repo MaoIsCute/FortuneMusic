@@ -111,6 +111,18 @@
 
       </el-collapse-item>
 
+      <!-- 資料修正 -->
+      <el-collapse-item name="fix">
+        <template #title><span class="collapse-title">資料修正</span></template>
+        <div class="fix-row">
+          <span class="fix-desc">成員名稱去除空格（半形 + 全形）：修正四張資料表中姓名含空格的舊資料</span>
+          <el-button :loading="normLoading" @click="runNormalize">執行</el-button>
+        </div>
+        <div v-if="normResult" class="norm-result">
+          個握 {{ normResult.records }} 筆・花費 {{ normResult.purchases }} 筆・全握 {{ normResult.full_records }} 筆・簽名會 {{ normResult.sign_events }} 筆
+        </div>
+      </el-collapse-item>
+
       <!-- 抓取紀錄 -->
       <el-collapse-item name="logs">
         <template #title>
@@ -147,9 +159,25 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, previewUserRecords, previewUserFullRecords, previewUserPurchases, getAdminScrapeLogs } from '../api/index'
+import { getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, previewUserRecords, previewUserFullRecords, previewUserPurchases, getAdminScrapeLogs, normalizeMemberNames } from '../api/index'
 
-const openSections = ref(['delete', 'logs'])
+const openSections = ref(['delete', 'fix', 'logs'])
+const normLoading = ref(false)
+const normResult  = ref(null)
+
+async function runNormalize() {
+  normLoading.value = true
+  normResult.value  = null
+  try {
+    const res = await normalizeMemberNames()
+    normResult.value = res.data
+    ElMessage.success('完成')
+  } catch {
+    ElMessage.error('執行失敗')
+  } finally {
+    normLoading.value = false
+  }
+}
 const users      = ref([])
 const scrapeLogs = ref([])
 
@@ -295,6 +323,9 @@ onMounted(() => {
 .collapse-title { font-weight: 600; font-size: 14px; }
 .empty { color: #999; text-align: center; padding: 32px 0; }
 .delete-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.fix-row { display: flex; align-items: center; gap: 16px; }
+.fix-desc { font-size: 13px; color: #555; flex: 1; }
+.norm-result { margin-top: 10px; font-size: 13px; color: #059669; }
 .sub-text { font-size: 11px; color: #999; }
 .tag-ok    { color: #059669; font-size: 13px; }
 .tag-error { color: #dc2626; font-size: 13px; }

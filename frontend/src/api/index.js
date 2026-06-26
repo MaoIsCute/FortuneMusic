@@ -86,6 +86,7 @@ export const fixSingleTitle = (group, single_number, single_name) => api.put('/a
 export const bulkSetTitles = (titles) => api.post('/api/admin/titles/bulk', { titles })
 export const getAdminPurchaseTitleIssues = () => api.get('/api/admin/purchase-title-issues')
 export const fixPurchaseTitle = (single_number, single_name) => api.put('/api/admin/purchase-title', { single_number, single_name })
+export const normalizeMemberNames = () => api.post('/api/admin/normalize-member-names')
 export const getAdminUsers = () => api.get('/api/admin/users')
 export const previewUserRecords     = (id, params = {}) => api.get(`/api/admin/users/${id}/records/preview`, { params })
 export const previewUserFullRecords = (id, params = {}) => api.get(`/api/admin/users/${id}/full-records/preview`, { params })

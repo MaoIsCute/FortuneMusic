@@ -53,6 +53,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.DELETE("/admin/users/:id/records", handlers.DeleteUserRecords)
 		api.DELETE("/admin/users/:id/full-records", handlers.DeleteUserFullRecords)
 		api.DELETE("/admin/users/:id/purchases", handlers.DeleteUserPurchases)
+		api.POST("/admin/normalize-member-names", handlers.NormalizeMemberNames)
 		api.GET("/admin/title-issues", handlers.GetTitleIssues)
 		api.GET("/admin/titles", handlers.GetKnownTitles)
 		api.PUT("/admin/title", handlers.FixSingleTitle)

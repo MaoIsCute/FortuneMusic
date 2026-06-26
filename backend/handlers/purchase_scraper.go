@@ -123,7 +123,7 @@ func PushPurchases(c *gin.Context) {
 			EntryID:      p.EntryID,
 			Group:        p.Group,
 			OrderNumber:  p.OrderNumber,
-			MemberName:   strings.ReplaceAll(p.MemberName, "　", ""),
+			MemberName:   normalizeMember(p.MemberName),
 			EventDate:    p.EventDate,
 			Session:      p.Session,
 			SingleNumber: p.SingleNumber,
