@@ -30,7 +30,7 @@
           </el-table-column>
           <el-table-column prop="total_applied" label="應募" min-width="70" sortable />
           <el-table-column prop="total_won" label="中選" min-width="70" sortable />
-          <el-table-column label="中選率" min-width="80" sortable :sort-by="row => parseFloat(row.win_rate)">
+          <el-table-column prop="win_rate_num" label="中選率" min-width="80" sortable>
             <template #default="{ row }">
               <span :class="rateClass(row.win_rate)">{{ row.win_rate }}%</span>
             </template>
@@ -55,7 +55,7 @@
           <el-table-column prop="member_name" label="成員" sortable />
           <el-table-column prop="total_applied" label="應募" width="80" sortable />
           <el-table-column prop="total_won" label="中選" width="80" sortable />
-          <el-table-column label="中選率" width="90" sortable :sort-by="row => parseFloat(row.win_rate)">
+          <el-table-column prop="win_rate_num" label="中選率" width="90" sortable>
             <template #default="{ row }">
               <span :class="rateClass(row.win_rate)">{{ row.win_rate }}%</span>
             </template>
@@ -194,7 +194,7 @@ async function loadMemberStats() {
   if (memberFilterType.value)  params.event_type = memberFilterType.value
   if (memberFilterVenue.value) params.venue = memberFilterVenue.value
   const res = await getFullStatsByMember(params)
-  memberStats.value = res.data ?? []
+  memberStats.value = (res.data ?? []).map(r => ({ ...r, win_rate_num: parseFloat(r.win_rate) }))
 }
 
 function onDetailTypeChange() {
@@ -219,7 +219,7 @@ async function loadDetail() {
 onMounted(async () => {
   const statsRes = await getFullOverallStats()
   overall.value = statsRes.data.overall ?? { total_applied: 0, total_won: 0 }
-  byType.value  = statsRes.data.by_type ?? []
+  byType.value  = (statsRes.data.by_type ?? []).map(r => ({ ...r, win_rate_num: parseFloat(r.win_rate) }))
   venueList.value = [...new Set(byType.value.map(r => r.venue).filter(v => v))]
   await loadMemberStats()
   const allNames = new Set()
