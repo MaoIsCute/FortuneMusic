@@ -194,6 +194,12 @@ LoginView → GET http://localhost:8080/auth/google
 
 **重要：每次修改 `extension/` 底下任何檔案後，commit 前都要重新打包 `FTExtension.zip`**（直接壓縮 `extension/` 資料夾內容，檔案要在 zip 根目錄、不要多包一層 `extension` 資料夾——用 `Compress-Archive -Path extension\* -DestinationPath FTExtension.zip -Force`），否則使用者下載到的會是舊版擴充功能。
 
+**版本號：commit 前若有異動，各自更新：**
+- 有改 `extension/` 檔案 → 更新 `extension/manifest.json` 的 `"version"`（目前 `1.1`）
+- 有改 `frontend/` 檔案 → 更新 `frontend/src/components/NavBar.vue` 的 `APP_VERSION`（目前 `1.1`）
+
+兩者互相獨立，不需強制同步。
+
 安裝方式：`chrome://extensions/` → 開發人員模式 → 載入未封裝項目 → 選解壓縮後的資料夾
 
 首次設定（一鍵連結）：

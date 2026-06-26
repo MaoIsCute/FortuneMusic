@@ -111,12 +111,15 @@ async function scrapeListPage(pageNum) {
 // entries = [{id, info}]（只傳新訂單進來）
 async function fetchOrderDetails(entries) {
   const CONCURRENCY = 1
-  const itemRe = /^(.+?)【(\d{1,2}\/\d{1,2})\s+(第\d+部)】(.+)$/
+  const itemRe = /^(.+?)【(\d{1,2}\/\d{1,2})[^】]*(第?\d+部)】(.+)$/
+  function toHalf(s) {
+    return (s || '').replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  }
 
   function parseProductName(text) {
-    const m = text.trim().match(itemRe)
+    const m = toHalf(text.trim()).match(itemRe)
     if (!m) return null
-    return { member_name: m[1].trim(), raw_date: m[2], session: m[3], event_name: m[4].trim() }
+    return { member_name: m[1].trim().replace(/[\s　]+/g, ''), raw_date: m[2], session: m[3], event_name: m[4].trim() }
   }
 
   function buildEventLabel(applyInfo, fallback) {
@@ -238,6 +241,8 @@ function buildSingleName(info) {
 }
 
 async function init() {
+  const { version } = chrome.runtime.getManifest()
+  document.getElementById('versionBadge').textContent = `v${version}`
   const data = await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
   if (data[BACKEND_KEY] && data[TOKEN_KEY]) showMain(data[BACKEND_KEY])
   else showSetup()
@@ -380,6 +385,19 @@ document.getElementById('openAppBtn').addEventListener('click', () => {
 })
 
 document.getElementById('settingsBtn').addEventListener('click', showSetup)
+
+async function waitForTabLoad(tabId, timeout = 8000) {
+  return new Promise(resolve => {
+    function onUpdated(id, info) {
+      if (id === tabId && info.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(onUpdated)
+        resolve()
+      }
+    }
+    chrome.tabs.onUpdated.addListener(onUpdated)
+    setTimeout(() => { chrome.tabs.onUpdated.removeListener(onUpdated); resolve() }, timeout)
+  })
+}
 
 // fortunemusic.jp tab 復用：有就導航，沒有才開新分頁
 async function getOrOpenFortuneMusicTab(path) {
@@ -549,7 +567,7 @@ function parseFullApiResults(results, singleNum, group) {
 
     const session = prizeInfo.part || ''
     const memberName = (prizeInfo.members || [])
-      .map(m => m.replace(/　/g, '').trim()).filter(Boolean).join('・')
+      .map(m => m.replace(/[\s　]+/g, '').trim()).filter(Boolean).join('・')
     if (!memberName) continue
 
     const appliedCount = item.count || 0
@@ -790,24 +808,18 @@ fullScrapeBtn.addEventListener('click', async () => {
 })
 
 // ─── 購入記錄：掃描 entry_list ───────────────────────────────────────────────
-async function scrapeEntryListPage(pageNum) {
+async function scrapeEntryListPage() {
   function toHalf(s) {
     return (s || '').replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
   }
 
-  let doc
-  if (pageNum === 1) {
-    doc = document
-    if (doc.querySelector('[name="login_form"], input[type="password"]'))
-      return { error: '頁面顯示登入表單，請先登入後再點「開始抓取」' }
-  } else {
-    let res
-    try { res = await fetch(`/mypage/entry_list/?page=${pageNum - 1}`) } catch (e) {
-      return { error: `第 ${pageNum} 頁讀取失敗：${e.message}` }
-    }
-    if (!res.ok) return { error: `第 ${pageNum} 頁回應錯誤：${res.status}` }
-    doc = new DOMParser().parseFromString(await res.text(), 'text/html')
-  }
+  const doc = document
+  const _url   = window.location.href
+  const _title = document.title
+  const _body  = document.body?.innerText?.slice(0, 300) || ''
+
+  if (doc.querySelector('[name="login_form"], input[type="password"]'))
+    return { error: '頁面顯示登入表單，請先登入後再點「開始抓取」', _url, _title, _body }
 
   const entries = []
   const seen = {}
@@ -858,15 +870,22 @@ async function scrapeEntryListPage(pageNum) {
     entries.push({ id: orderNumber, urlId, info })
   })
 
-  if (entries.length === 0) return { entries: [], hasMore: false }
-  return { entries, hasMore: true }
+  const nextLink = Array.from(doc.querySelectorAll('a[href*="/mypage/entry_list/?page="]'))
+    .find(a => a.textContent.trim() === '次へ')
+  const nextUrl  = nextLink ? nextLink.getAttribute('href') : null
+
+  if (entries.length === 0) return { entries: [], hasMore: false, nextUrl, _url, _title, _body }
+  return { entries, hasMore: true, nextUrl, _url, _title, _body }
 }
 
 // entry_detail から明細を取得（4 個並行）
 async function fetchEntryDetailItems(entries) {
   const CONCURRENCY = 1
-  const itemRe = /^(.+?)【(\d{1,2}\/\d{1,2})\s+(第\d+部)】/
+  const itemRe = /^(.+?)【(\d{1,2}\/\d{1,2})[^】]*(第?\d+部)】/
   const parser = new DOMParser()
+  function toHalf(s) {
+    return (s || '').replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  }
 
   function buildSingleName(info) {
     if (!info) return ''
@@ -886,15 +905,25 @@ async function fetchEntryDetailItems(entries) {
   }
 
   async function fetchSingle({ id, urlId, info }) {
-    let res
-    try { res = await fetch(`/mypage/entry_detail/${urlId || id}/`) } catch { return { items: [], mismatch: null } }
-    if (res.status === 503) {
-      await new Promise(r => setTimeout(r, 2000))
-      try { res = await fetch(`/mypage/entry_detail/${urlId || id}/`) } catch { return { items: [], mismatch: null } }
+    const url = `/mypage/entry_detail/${urlId || id}/`
+    async function tryFetch() {
+      let res
+      try { res = await fetch(url) } catch { return null }
+      if (res.status === 403 || res.status === 503) return null
+      if (!res.ok) return null
+      return await res.text()
     }
-    if (!res.ok) return { items: [], mismatch: null }
-
-    const doc = parser.parseFromString(await res.text(), 'text/html')
+    let html = await tryFetch()
+    if (html === null) {
+      await new Promise(r => setTimeout(r, 15000))
+      html = await tryFetch()
+    }
+    if (html === null) {
+      await new Promise(r => setTimeout(r, 15000))
+      html = await tryFetch()
+    }
+    if (html === null) return { items: [], mismatch: null }
+    const doc = parser.parseFromString(html, 'text/html')
     const aggregated = {}
 
     let appliedYear = new Date().getFullYear()
@@ -907,11 +936,11 @@ async function fetchEntryDetailItems(entries) {
     doc.querySelectorAll('tbody tr').forEach(row => {
       const firstTd = row.querySelector('td:first-child')
       if (!firstTd) return
-      const text = firstTd.textContent.trim()
+      const text = toHalf(firstTd.textContent.trim())
       const m = text.match(itemRe)
       if (!m) return
 
-      const memberName = m[1].trim()
+      const memberName = m[1].trim().replace(/[\s　]+/g, '')
       const rawDate    = m[2]
       const session    = m[3]
 
@@ -985,7 +1014,7 @@ async function fetchEntryDetailItems(entries) {
       purchases.push(...r.items)
       if (r.mismatch) mismatches.push(r.mismatch)
     })
-    if (i + CONCURRENCY < entries.length) await new Promise(r => setTimeout(r, 500))
+    if (i + CONCURRENCY < entries.length) await new Promise(r => setTimeout(r, 2000))
   }
   return { purchases, mismatches }
 }
@@ -1008,7 +1037,7 @@ purchaseSyncBtn.addEventListener('click', async () => {
   )
 })
 
-// 步驟二：逐頁掃描 entry_list → 新訂單抓 entry_detail
+// 步驟二：先掃完所有列表頁收集 entry，再集中抓 detail（避免 detail fetch 觸發 rate limit 導致列表翻頁 403）
 purchaseScrapeBtn.addEventListener('click', async () => {
   const { [BACKEND_KEY]: backendUrl, [TOKEN_KEY]: scrapeToken } =
     await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
@@ -1026,61 +1055,88 @@ purchaseScrapeBtn.addEventListener('click', async () => {
     const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/entry_list/*' })
     if (tabs.length === 0) throw new Error('找不到購入記錄分頁，請先點「同步」開啟頁面，確認登入後再試')
 
+    // 階段一：掃描所有列表頁（不做任何 detail fetch）
+    const allEntries = []
     while (true) {
       if (isStopping) break
-      updateProgress('個握花費', 0, 0, `掃描第 ${page} 頁...　新增 ${totalNew} · 跳過 ${totalSkipped}`)
+      updateProgress('個握花費', 0, 0, `掃描列表第 ${page} 頁...（已收集 ${allEntries.length} 筆）`)
       const listResult = await chrome.scripting.executeScript({
         target: { tabId: tabs[0].id },
         func:   scrapeEntryListPage,
-        args:   [page],
+        args:   [],
       })
       const listData = listResult[0]?.result
-      if (!listData)        { errorMsg = '掃描失敗，無法取得結果'; break }
-      if (listData.error)   { errorMsg = listData.error;           break }
+      if (!listData)      { errorMsg = '掃描失敗，無法取得結果'; break }
+      if (listData.error) { errorMsg = `${listData.error} | URL:${listData._url} | title:${listData._title} | body:${listData._body}`; break }
       if (!listData.hasMore) break
 
-      const { entries } = listData
+      allEntries.push(...listData.entries)
+      if (!listData.nextUrl) break
 
+      await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: (href) => {
+          const link = document.querySelector(`a[href="${href}"]`)
+            || Array.from(document.querySelectorAll('a[href*="/mypage/entry_list/?page="]'))
+               .find(a => a.textContent.trim() === '次へ')
+          if (link) link.click()
+        },
+        args: [listData.nextUrl],
+      })
+      await waitForTabLoad(tabs[0].id)
+      await new Promise(r => setTimeout(r, 1000))
+      page++
+    }
+
+    // 階段二：查重
+    if (!errorMsg && !isStopping && allEntries.length > 0) {
+      updateProgress('個握花費', 0, 0, `比對 ${allEntries.length} 筆...`)
       const checkRes = await fetch(`${backendUrl}/scrape/check-entries`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ scrape_token: scrapeToken, entry_ids: entries.map(e => e.id) }),
+        body:    JSON.stringify({ scrape_token: scrapeToken, entry_ids: allEntries.map(e => e.id) }),
       })
       const checkJson = await checkRes.json()
-      if (!checkRes.ok) { errorMsg = checkJson.error || '查詢失敗'; break }
+      if (!checkRes.ok) {
+        errorMsg = checkJson.error || '查詢失敗'
+      } else {
+        const newSet     = new Set(checkJson.new_entry_ids)
+        const newEntries = allEntries.filter(e => newSet.has(e.id))
+        totalSkipped     = allEntries.length - newEntries.length
 
-      const newSet     = new Set(checkJson.new_entry_ids)
-      const newEntries = entries.filter(e => newSet.has(e.id))
-
-      if (newEntries.length > 0) {
-        updateProgress('個握花費', 0, 0, `第 ${page} 頁：${newEntries.length} 筆新記錄，抓取明細中...`)
-        const detailResult = await chrome.scripting.executeScript({
-          target: { tabId: tabs[0].id },
-          func:   fetchEntryDetailItems,
-          args:   [newEntries],
-        })
-        const detailData = detailResult[0]?.result
-        if (detailData?.mismatches?.length > 0) allMismatches.push(...detailData.mismatches)
-        if (detailData?.purchases?.length > 0) {
-          const pushRes = await fetch(`${backendUrl}/scrape/purchases/push`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ scrape_token: scrapeToken, purchases: detailData.purchases }),
+        // 階段三：抓取新訂單明細
+        if (newEntries.length > 0) {
+          updateProgress('個握花費', 0, 0, `抓取 ${newEntries.length} 筆新記錄明細...`)
+          const detailResult = await chrome.scripting.executeScript({
+            target: { tabId: tabs[0].id },
+            func:   fetchEntryDetailItems,
+            args:   [newEntries],
           })
-          const pushJson = await pushRes.json()
-          if (!pushRes.ok) { errorMsg = pushJson.error || '上傳失敗'; break }
-          totalNew     += pushJson.new_purchases ?? 0
-          totalSkipped += pushJson.skipped       ?? 0
+          const detailData = detailResult[0]?.result
+          if (detailData?.mismatches?.length > 0) allMismatches.push(...detailData.mismatches)
+          if (detailData?.purchases?.length > 0) {
+            const pushRes = await fetch(`${backendUrl}/scrape/purchases/push`, {
+              method:  'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body:    JSON.stringify({ scrape_token: scrapeToken, purchases: detailData.purchases }),
+            })
+            const pushJson = await pushRes.json()
+            if (!pushRes.ok) {
+              errorMsg = pushJson.error || '上傳失敗'
+            } else {
+              totalNew      = pushJson.new_purchases ?? 0
+              totalSkipped += pushJson.skipped       ?? 0
+            }
+          }
         }
       }
-
-      page++
     }
 
     const elapsed = stopTimer(); hideProgress()
     const warningMsg = buildMismatchWarning(allMismatches)
     addLogEntry('個握花費', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, warningMsg)
     await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, errorMsg, elapsed)
+    chrome.tabs.update(tabs[0].id, { url: 'https://fortunemusic.jp/mypage/entry_list/' })
     if (!errorMsg && !isStopping) setPurchaseWaitingMode(false)
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
@@ -1279,7 +1335,7 @@ verifyPurchaseBtn.addEventListener('click', async () => {
       const listResult = await chrome.scripting.executeScript({
         target: { tabId: tabs[0].id },
         func:   scrapeEntryListPage,
-        args:   [page],
+        args:   [],
       })
       const listData = listResult[0]?.result
       if (!listData)       { errorMsg = '掃描失敗，無法取得結果'; break }
@@ -1287,6 +1343,22 @@ verifyPurchaseBtn.addEventListener('click', async () => {
       if (!listData.hasMore) break
 
       allEntries.push(...listData.entries)
+
+      if (!listData.nextUrl) break
+
+      await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: (href) => {
+          const link = document.querySelector(`a[href="${href}"]`)
+            || Array.from(document.querySelectorAll('a[href*="/mypage/entry_list/?page="]'))
+               .find(a => a.textContent.trim() === '次へ')
+          if (link) link.click()
+        },
+        args: [listData.nextUrl],
+      })
+      await waitForTabLoad(tabs[0].id)
+      await new Promise(r => setTimeout(r, 1000))
+
       page++
     }
 

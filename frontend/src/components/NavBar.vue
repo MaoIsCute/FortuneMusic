@@ -36,6 +36,7 @@
     </div>
     <div class="actions">
       <el-switch v-model="isDark" @change="themeStore.toggleDark()" active-text="🌙" inactive-text="☀️" />
+      <span class="version">v{{ APP_VERSION }}</span>
       <span class="user">{{ auth.user?.name }}</span>
       <el-button size="small" @click="auth.logout(); router.push('/')">登出</el-button>
     </div>
@@ -47,6 +48,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
+
+const APP_VERSION = '1.1'
 
 const router = useRouter()
 const route  = useRoute()
@@ -110,5 +113,6 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
 }
 .nav-menu a:hover { background: #f5f7fa; }
 .actions { display: flex; align-items: center; gap: 12px; }
+.version { font-size: 11px; opacity: 0.6; }
 .user { font-size: 14px; }
 </style>

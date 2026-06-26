@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Fortune Tracker",
-  "version": "1.0",
+  "version": "1.1",
   "description": "自動取得 Fortune Music Cookie 並同步抽選記錄",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtpCWOJC2O8Qv1fJTEilY6w0rIkZT3enq15nGuaCabfHiElRDC69v9vZZjhUyG8POJs63OleJEKV0nfr2IlTiO9LhSD9TA2ix4JNgdRhKCMTHrgL14+7nVlFHVYwj7XqBz/FkZP7dQE36jNe7gklVFXwFl3+/HyhjM/EKSsE4vbSVDeWTXf0vRuszNchx88K2vCV9zZivP+aL18f/YR9U83jLjBeCgc/mE+nOSNYFYmdVZErjKmRi7JiMkAH0ALq8gHt6FCkcxRdDsYy05jeQRSTpEWKsd6aKMZfYIlWshpDxkcxQoL9snV5Lb0htyKdzvAukMAQmQlgURpHWNyJQvQIDAQAB",
   "externally_connectable": {
