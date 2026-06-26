@@ -850,7 +850,7 @@ async function scrapeEntryListPage() {
     const rowText = toHalf(row.textContent || '')
 
     const info = { orderNumber, appliedAt, description }
-    const sm = rowText.match(/(\d+)(st|nd|rd|th)シングル/)
+    const sm = rowText.match(/(\d+)(st|nd|rd|th)(?:シングル|SG)/)
     const am = rowText.match(/(\d+)(st|nd|rd|th)アルバム/)
     const titleM = rowText.match(/[『「](.+?)[』」]/)
     const rm = rowText.match(/第(\d+)次/)
