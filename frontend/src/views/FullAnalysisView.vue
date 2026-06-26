@@ -24,13 +24,13 @@
       <el-collapse-item v-if="byType.length" name="type">
         <template #title><span class="collapse-title">類型分析</span></template>
         <el-table table-layout="auto" :data="byType" stripe>
-          <el-table-column prop="event_type" label="類型" min-width="60" />
-          <el-table-column label="場地" min-width="200">
+          <el-table-column prop="event_type" label="類型" min-width="60" sortable />
+          <el-table-column label="場地" min-width="200" sortable :sort-by="row => row.venue || ''">
             <template #default="{ row }">{{ row.venue || '—' }}</template>
           </el-table-column>
-          <el-table-column prop="total_applied" label="應募" min-width="70" />
-          <el-table-column prop="total_won" label="中選" min-width="70" />
-          <el-table-column label="中選率" min-width="80">
+          <el-table-column prop="total_applied" label="應募" min-width="70" sortable />
+          <el-table-column prop="total_won" label="中選" min-width="70" sortable />
+          <el-table-column label="中選率" min-width="80" sortable :sort-by="row => parseFloat(row.win_rate)">
             <template #default="{ row }">
               <span :class="rateClass(row.win_rate)">{{ row.win_rate }}%</span>
             </template>
@@ -52,10 +52,10 @@
           </el-select>
         </div>
         <el-table :data="memberStats" stripe max-height="400">
-          <el-table-column prop="member_name" label="成員" />
-          <el-table-column prop="total_applied" label="應募" width="80" />
-          <el-table-column prop="total_won" label="中選" width="80" />
-          <el-table-column label="中選率" width="90">
+          <el-table-column prop="member_name" label="成員" sortable />
+          <el-table-column prop="total_applied" label="應募" width="80" sortable />
+          <el-table-column prop="total_won" label="中選" width="80" sortable />
+          <el-table-column label="中選率" width="90" sortable :sort-by="row => parseFloat(row.win_rate)">
             <template #default="{ row }">
               <span :class="rateClass(row.win_rate)">{{ row.win_rate }}%</span>
             </template>
