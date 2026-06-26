@@ -123,13 +123,11 @@ import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
 import { getPurchaseOverallStats, getPurchaseTree, getPurchaseStatsByMember } from '../api/index'
-import { useDataStore } from '../stores/data'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
 
 use([PieChart, TooltipComponent, LegendComponent, CanvasRenderer])
 
-const dataStore  = useDataStore()
 const overall    = ref({})
 const tree       = ref([])
 const byMember   = ref([])
@@ -208,10 +206,6 @@ function formatRound(round) {
 }
 
 async function load() {
-  if (dataStore.hasData === false) {
-    loaded.value = true
-    return
-  }
   try {
     const [o, t, mb] = await Promise.all([
       getPurchaseOverallStats(),

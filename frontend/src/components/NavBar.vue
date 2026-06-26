@@ -49,7 +49,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
 
-const APP_VERSION = '1.1'
+const APP_VERSION = '1.2'
 
 const router = useRouter()
 const route  = useRoute()
