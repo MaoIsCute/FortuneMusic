@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -84,7 +83,7 @@ func PushPurchases(c *gin.Context) {
 	}
 
 	now := time.Now()
-	corrections := loadTitleMap()
+	titleMaps := loadTitleMap()
 
 	// 批次查出已存在的 item_key，避免在迴圈中逐筆查詢
 	itemKeys := make([]string, 0, len(req.Purchases))
@@ -112,8 +111,14 @@ func PushPurchases(c *gin.Context) {
 
 		singleName := p.SingleName
 		if singleName == "" || strings.Contains(singleName, "タイトル未定") {
-			if corrected, ok := corrections[titleKey{Group: p.Group, SingleNumber: p.SingleNumber}]; ok {
-				singleName = corrected
+			if p.SingleNumber > 0 {
+				if corrected, ok := titleMaps.Singles[titleKey{Group: p.Group, SingleNumber: p.SingleNumber}]; ok {
+					singleName = corrected
+				}
+			} else if p.SingleName != "" {
+				if corrected, ok := titleMaps.Albums[albumCorrKey{Group: p.Group, OrgAlbumName: p.SingleName}]; ok {
+					singleName = corrected
+				}
 			}
 		}
 
@@ -393,24 +398,10 @@ func GetPurchaseTree(c *gin.Context) {
 
 // DeleteUserPurchases は admin 用
 func DeleteUserPurchases(c *gin.Context) {
-	if !checkAdmin(c) {
-		return
-	}
-	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的使用者 ID"})
-		return
-	}
-	q := db.DB.Where("user_id = ?", uint(targetID))
-	if sn := c.Query("single_number"); sn != "" {
-		q = q.Where("single_number = ?", sn)
-	}
-	if from := c.Query("date_from"); from != "" {
-		q = q.Where("event_date >= ?", from)
-	}
-	if to := c.Query("date_to"); to != "" {
-		q = q.Where("event_date <= ?", to)
-	}
+	if !checkAdmin(c) { return }
+	targetID, ok := parseAdminTarget(c)
+	if !ok { return }
+	q := applyDeleteFilters(db.DB.Where("user_id = ?", targetID), c)
 	deleted := q.Delete(&models.Purchase{}).RowsAffected
 	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
 }

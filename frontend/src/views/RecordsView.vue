@@ -90,7 +90,20 @@ async function reloadFilterLists() {
   ])
   memberList.value = sortMembersByGen((membersRes.data ?? []).map(m => m.member_name))
   const rows = detailRes.data ?? []
-  singleList.value = [...new Set(rows.map(r => r.single_name).filter(Boolean))].sort()
+  // 單曲以 single_number 去重（避免同一張單曲有新舊兩種名稱時出現重複選項），
+  // 名稱優先取非 タイトル未定/非空的版本；專輯（single_number=0）沒有可靠編號，改用名稱本身當 key
+  const singleMap = new Map()
+  for (const r of rows) {
+    if (!r.single_name) continue
+    if (r.single_number > 0) {
+      const existing = singleMap.get(r.single_number)
+      if (!existing || existing.includes('タイトル未定') || existing === '')
+        singleMap.set(r.single_number, r.single_name)
+    } else {
+      singleMap.set(`a:${r.single_name}`, r.single_name)
+    }
+  }
+  singleList.value = [...singleMap.values()].sort()
   roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) => a - b)
 }
 

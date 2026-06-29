@@ -69,9 +69,23 @@
             <template #default="{ row }">{{ groupLabel(row.group) }}</template>
           </el-table-column>
           <el-table-column prop="single_number" label="單曲號" min-width="60" />
-          <el-table-column prop="single_name" label="單曲名稱" min-width="320" />
+          <el-table-column label="單曲名稱" min-width="320">
+            <template #default="{ row }">
+              <el-input v-if="row._editing" v-model="row._input" size="small" style="width:100%" />
+              <span v-else>{{ row.single_name }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="來源" min-width="90">
             <template #default="{ row }">{{ sourceLabel(row.source) }}</template>
+          </el-table-column>
+          <el-table-column label="" min-width="130">
+            <template #default="{ row }">
+              <template v-if="row._editing">
+                <el-button type="primary" size="small" :loading="row._loading" @click="saveKnown(row)">確認</el-button>
+                <el-button size="small" @click="cancelEdit(row)">取消</el-button>
+              </template>
+              <el-button v-else size="small" @click="startEdit(row)">編輯</el-button>
+            </template>
           </el-table-column>
         </el-table>
       </el-collapse-item>
@@ -106,7 +120,8 @@ async function fix(row) {
   }
   row._loading = true
   try {
-    const res = await fixSingleTitle(row.group, row.single_number, row._input.trim())
+    const orgAlbumName = row.single_number === 0 ? (row.current_name || '') : ''
+    const res = await fixSingleTitle(row.group, row.single_number, row._input.trim(), orgAlbumName)
     ElMessage.success(`已更新 ${res.data.updated} 筆`)
     await loadIssues()
   } catch (e) {
@@ -186,8 +201,34 @@ function sourceLabel(s) {
 async function loadKnownTitles() {
   try {
     const res = await getAdminKnownTitles()
-    knownTitles.value = res.data ?? []
+    knownTitles.value = (res.data ?? []).map(t => ({ ...t, _editing: false, _input: t.single_name, _loading: false }))
   } catch {}
+}
+
+function startEdit(row) {
+  row._editing = true
+  row._input = row.single_name
+}
+
+function cancelEdit(row) {
+  row._editing = false
+  row._input = row.single_name
+}
+
+async function saveKnown(row) {
+  const newName = row._input.trim()
+  if (!newName || newName === row.single_name) { cancelEdit(row); return }
+  row._loading = true
+  try {
+    const orgAlbumName = row.single_number === 0 ? (row.org_album_name || row.single_name) : ''
+    const res = await fixSingleTitle(row.group, row.single_number, newName, orgAlbumName)
+    ElMessage.success(`已更新 ${res.data.updated} 筆`)
+    await Promise.all([loadKnownTitles(), loadIssues()])
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '更新失敗')
+    row._loading = false
+    row._editing = false
+  }
 }
 
 onMounted(() => {

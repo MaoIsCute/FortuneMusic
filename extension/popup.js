@@ -78,7 +78,7 @@ async function scrapeListPage(pageNum) {
     const tdEvent = container.querySelector('td.tdEvent')
     if (tdEvent) {
       const eventText = tdEvent.textContent.trim()
-      const sm    = eventText.match(/(\d+)(st|nd|rd|th)シングル/)
+      const sm    = eventText.match(/(\d+)(st|nd|rd|th)(?:シングル|SG)/)
       const am    = eventText.match(/(\d+)(st|nd|rd|th)アルバム/)
       const titleM = eventText.match(/[『「](.+?)[』」]/)
       const rm    = eventText.match(/第(\d+)次/)

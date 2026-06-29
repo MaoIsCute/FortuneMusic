@@ -83,6 +83,32 @@ func Init(cfg *config.Config) {
 		END $$;
 	`)
 
+	// titles 新增 org_album_name 欄位供專輯改名對照（冪等），並更新 unique index 加入第三欄
+	DB.Exec(`
+		DO $$
+		BEGIN
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'titles')
+			   AND NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_name = 'titles' AND column_name = 'org_album_name'
+			   ) THEN
+				ALTER TABLE titles ADD COLUMN org_album_name varchar(255) NOT NULL DEFAULT '';
+			END IF;
+		END $$;
+	`)
+	DB.Exec(`
+		DO $$
+		BEGIN
+			IF EXISTS (
+				SELECT 1 FROM pg_indexes
+				WHERE indexname = 'idx_title_group_single'
+				  AND indexdef NOT LIKE '%org_album_name%'
+			) THEN
+				DROP INDEX idx_title_group_single;
+			END IF;
+		END $$;
+	`)
+
 	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.SignEvent{}, &models.Purchase{}, &models.ScrapeLog{}, &models.Title{}); err != nil {
 		log.Fatal("AutoMigrate failed:", err)
 	}

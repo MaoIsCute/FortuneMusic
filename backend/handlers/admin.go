@@ -25,6 +25,18 @@ type titleKey struct {
 	SingleNumber int
 }
 
+// albumCorrKey 以 group + org_album_name 識別一張專輯的改名對照
+type albumCorrKey struct {
+	Group        string
+	OrgAlbumName string
+}
+
+// titleMaps 同時持有單曲 map 與專輯改名 map
+type titleMaps struct {
+	Singles map[titleKey]string    // (group, single_number) → single_name，限 single_number > 0
+	Albums  map[albumCorrKey]string // (group, org_album_name) → corrected_name，限 single_number == 0
+}
+
 var configuredAdminEmail string
 
 func InitAdmin(email string) {
@@ -62,7 +74,7 @@ func GetTitleIssues(c *gin.Context) {
 
 	// titles 主表已登記的單曲：只要跟登記值不一樣就算問題（含 タイトル未定、空白、打錯字等）。
 	// 還沒登記過的單曲（包含所有專輯，因為專輯不會寫入 titles）才退回舊版邏輯：只抓 タイトル未定/空白。
-	titles := loadTitleMap()
+	maps := loadTitleMap()
 
 	countMap := map[titleKey]int64{}
 	nameMap := map[titleKey]string{}
@@ -76,7 +88,7 @@ func GetTitleIssues(c *gin.Context) {
 		for _, r := range rows {
 			key := titleKey{Group: r.Group, SingleNumber: r.SingleNumber}
 			var isIssue bool
-			if registered, ok := titles[key]; ok {
+			if registered, ok := maps.Singles[key]; ok {
 				isIssue = r.SingleName != registered
 			} else {
 				isIssue = r.SingleName == "" || strings.Contains(r.SingleName, "タイトル未定")
@@ -106,7 +118,7 @@ func GetTitleIssues(c *gin.Context) {
 		Group(`"group", single_number, single_name`).
 		Scan(&corrects)
 	suggestMap := map[titleKey]string{}
-	for key, name := range titles {
+	for key, name := range maps.Singles {
 		suggestMap[key] = name
 	}
 	for _, r := range corrects {
@@ -144,7 +156,8 @@ type KnownTitle struct {
 	Group        string `json:"group"`
 	SingleNumber int    `json:"single_number"`
 	SingleName   string `json:"single_name"`
-	Source       string `json:"source"` // correction / records / purchases
+	OrgAlbumName string `json:"org_album_name"` // 專輯用：抓取時的原始名稱（作為修正 key）
+	Source       string `json:"source"`          // correction / records / purchases
 }
 
 // albumKey 專輯（single_number == 0）沒有可靠編號可用，只能靠名稱本身互相區分
@@ -153,10 +166,6 @@ type albumKey struct {
 	SingleName string
 }
 
-// GetKnownTitles 列出目前資料庫裡所有已知的單曲名稱（依 group 分組），供管理頁面瀏覽、抓出命名不一致的情況。
-// 注意：這只是「DB 裡已經出現過的」單曲，不是官方完整發行紀錄。
-// 單曲（single_number > 0）用 (group, single_number) 當鍵；專輯（single_number == 0）沒有可靠編號，改用 (group, single_name) 當鍵，
-// 所以同一團體的多張專輯會各自列出，不會互相覆蓋。
 func GetKnownTitles(c *gin.Context) {
 	if !checkAdmin(c) {
 		return
@@ -171,6 +180,14 @@ func GetKnownTitles(c *gin.Context) {
 	nameMap := map[titleKey]string{}
 	sourceMap := map[titleKey]string{}
 	albumSourceMap := map[albumKey]string{}
+
+	// 專輯改名對照：corrected_name → org_album_name（供查詢用）
+	albumCorrByName := map[albumKey]string{}
+	var albumTitles []models.Title
+	db.DB.Where("single_number = 0 AND org_album_name != ''").Find(&albumTitles)
+	for _, at := range albumTitles {
+		albumCorrByName[albumKey{Group: at.Group, SingleName: at.SingleName}] = at.OrgAlbumName
+	}
 
 	collect := func(rows []row, source string) {
 		for _, r := range rows {
@@ -203,8 +220,7 @@ func GetKnownTitles(c *gin.Context) {
 		Scan(&purRows)
 	collect(purRows, "purchases")
 
-	// titles 只會有單曲（專輯沒有可靠編號，不會寫入 titles，見 FixSingleTitle/BulkSetTitles）
-	for key, name := range loadTitleMap() {
+	for key, name := range loadTitleMap().Singles {
 		nameMap[key] = name
 		sourceMap[key] = "correction"
 	}
@@ -219,12 +235,31 @@ func GetKnownTitles(c *gin.Context) {
 		})
 	}
 	for ak, source := range albumSourceMap {
+		orgAlbumName := ""
+		if orgName, ok := albumCorrByName[ak]; ok {
+			orgAlbumName = orgName
+			source = "correction"
+		}
 		result = append(result, KnownTitle{
 			Group:        ak.Group,
 			SingleNumber: 0,
 			SingleName:   ak.SingleName,
+			OrgAlbumName: orgAlbumName,
 			Source:       source,
 		})
+	}
+	// 預先登記但尚未出現在任何記錄裡的專輯修正
+	for _, at := range albumTitles {
+		ak := albumKey{Group: at.Group, SingleName: at.SingleName}
+		if _, exists := albumSourceMap[ak]; !exists {
+			result = append(result, KnownTitle{
+				Group:        at.Group,
+				SingleNumber: 0,
+				SingleName:   at.SingleName,
+				OrgAlbumName: at.OrgAlbumName,
+				Source:       "correction",
+			})
+		}
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Group != result[j].Group {
@@ -235,7 +270,6 @@ func GetKnownTitles(c *gin.Context) {
 		}
 		return result[i].SingleName < result[j].SingleName
 	})
-
 	c.JSON(http.StatusOK, result)
 }
 
@@ -320,16 +354,7 @@ func PreviewUserPurchases(c *gin.Context) {
 	if !ok { return }
 	page, pageSize := 1, 50
 	fmt.Sscan(c.DefaultQuery("page", "1"), &page)
-	q := db.DB.Model(&models.Purchase{}).Where("user_id = ?", targetID)
-	if sn := c.Query("single_number"); sn != "" {
-		q = q.Where("single_number = ?", sn)
-	}
-	if from := c.Query("date_from"); from != "" {
-		q = q.Where("event_date >= ?", from)
-	}
-	if to := c.Query("date_to"); to != "" {
-		q = q.Where("event_date <= ?", to)
-	}
+	q := applyDeleteFilters(db.DB.Model(&models.Purchase{}).Where("user_id = ?", targetID), c)
 	var total int64
 	q.Count(&total)
 	var purchases []models.Purchase
@@ -410,12 +435,19 @@ func GetAdminSignEvents(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": rows, "total": total})
 }
 
-func loadTitleMap() map[titleKey]string {
-	var corrections []models.Title
-	db.DB.Find(&corrections)
-	m := make(map[titleKey]string, len(corrections))
-	for _, c := range corrections {
-		m[titleKey{Group: c.Group, SingleNumber: c.SingleNumber}] = c.SingleName
+func loadTitleMap() titleMaps {
+	var titles []models.Title
+	db.DB.Find(&titles)
+	m := titleMaps{
+		Singles: make(map[titleKey]string),
+		Albums:  make(map[albumCorrKey]string),
+	}
+	for _, t := range titles {
+		if t.SingleNumber > 0 {
+			m.Singles[titleKey{Group: t.Group, SingleNumber: t.SingleNumber}] = t.SingleName
+		} else if t.OrgAlbumName != "" {
+			m.Albums[albumCorrKey{Group: t.Group, OrgAlbumName: t.OrgAlbumName}] = t.SingleName
+		}
 	}
 	return m
 }
@@ -429,6 +461,7 @@ func FixSingleTitle(c *gin.Context) {
 		Group        string `json:"group" binding:"required"`
 		SingleNumber int    `json:"single_number"`
 		SingleName   string `json:"single_name" binding:"required"`
+		OrgAlbumName string `json:"org_album_name"` // 專輯用：原始抓取名稱作為修正 key
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "請提供 group、single_number 與 single_name"})
@@ -439,31 +472,43 @@ func FixSingleTitle(c *gin.Context) {
 		return
 	}
 
-	// 同時更新個握 + 購入（所有使用者），限定同一 group 避免跨團體誤改。
-	// 單曲（single_number 唯一對應一張發行物）：直接抓「跟新名稱不一樣」的全部更新，含 タイトル未定/空白/打錯字等任何不一致。
-	// 專輯（single_number == 0，同團體可能有多張不同專輯共用這個號碼）：只能抓明顯待修正的 タイトル未定/空白，
-	// 不能用「!= 新名稱」，否則會把同團體其他正確命名的專輯也一起改掉。
-	recQuery := db.DB.Model(&models.Record{}).Where(`"group" = ? AND single_number = ?`, req.Group, req.SingleNumber)
-	purQuery := db.DB.Model(&models.Purchase{}).Where(`"group" = ? AND single_number = ?`, req.Group, req.SingleNumber)
-	if req.SingleNumber != 0 {
-		recQuery = recQuery.Where("single_name != ?", req.SingleName)
-		purQuery = purQuery.Where("single_name != ?", req.SingleName)
-	} else {
-		recQuery = recQuery.Where("single_name LIKE ? OR single_name = ''", "%タイトル未定%")
-		purQuery = purQuery.Where("single_name LIKE ? OR single_name = ''", "%タイトル未定%")
-	}
-	recResult := recQuery.Update("single_name", req.SingleName)
-	purResult := purQuery.Update("single_name", req.SingleName)
+	var recAffected, purAffected int64
 
-	// 專輯（single_number == 0）沒有可靠編號可以當 key，不寫入 titles，
-	// 否則之後另一張不同的未定專輯會被誤套用這個名稱
 	if req.SingleNumber != 0 {
-		db.DB.Where(models.Title{Group: req.Group, SingleNumber: req.SingleNumber}).
+		// 單曲：任何跟新名稱不一樣的都更新
+		recAffected = db.DB.Model(&models.Record{}).
+			Where(`"group" = ? AND single_number = ? AND single_name != ?`, req.Group, req.SingleNumber, req.SingleName).
+			Update("single_name", req.SingleName).RowsAffected
+		purAffected = db.DB.Model(&models.Purchase{}).
+			Where(`"group" = ? AND single_number = ? AND single_name != ?`, req.Group, req.SingleNumber, req.SingleName).
+			Update("single_name", req.SingleName).RowsAffected
+		db.DB.Where(models.Title{Group: req.Group, SingleNumber: req.SingleNumber, OrgAlbumName: ""}).
 			Assign(models.Title{SingleName: req.SingleName}).
 			FirstOrCreate(&models.Title{})
+	} else {
+		// 專輯：以 org_album_name 為 key，精確匹配原始名稱的記錄
+		orgName := req.OrgAlbumName
+		// 查現有修正，取得目前 DB 裡的名稱（re-correction 情境下記錄已是上次修正後的名稱）
+		oldName := orgName
+		var existing models.Title
+		if db.DB.Where(`"group" = ? AND single_number = 0 AND org_album_name = ?`, req.Group, orgName).First(&existing).Error == nil {
+			oldName = existing.SingleName
+		}
+		recAffected = db.DB.Model(&models.Record{}).
+			Where(`"group" = ? AND single_number = 0 AND single_name = ? AND single_name != ?`, req.Group, oldName, req.SingleName).
+			Update("single_name", req.SingleName).RowsAffected
+		purAffected = db.DB.Model(&models.Purchase{}).
+			Where(`"group" = ? AND single_number = 0 AND single_name = ? AND single_name != ?`, req.Group, oldName, req.SingleName).
+			Update("single_name", req.SingleName).RowsAffected
+		// 只有 org_album_name 是具體名稱（非 タイトル未定/空白）才存入 titles 作為自動套用對照
+		if orgName != "" && !strings.Contains(orgName, "タイトル未定") {
+			db.DB.Where(models.Title{Group: req.Group, SingleNumber: 0, OrgAlbumName: orgName}).
+				Assign(models.Title{SingleName: req.SingleName}).
+				FirstOrCreate(&models.Title{})
+		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"updated": recResult.RowsAffected + purResult.RowsAffected})
+	c.JSON(http.StatusOK, gin.H{"updated": recAffected + purAffected})
 }
 
 // BulkSetTitles 一次登記多筆已知的單曲名稱（不需要先出現 タイトル未定 問題），
@@ -506,9 +551,9 @@ func BulkSetTitles(c *gin.Context) {
 		purResult := purQuery.Update("single_name", t.SingleName)
 		updated += recResult.RowsAffected + purResult.RowsAffected
 
-		// 專輯（single_number == 0）沒有可靠編號可以當 key，不寫入 titles（理由同 FixSingleTitle）
+		// 批次登記單曲寫入 titles；專輯沒有 org_album_name 資訊，不存入 titles（只回填既有記錄）
 		if t.SingleNumber != 0 {
-			db.DB.Where(models.Title{Group: t.Group, SingleNumber: t.SingleNumber}).
+			db.DB.Where(models.Title{Group: t.Group, SingleNumber: t.SingleNumber, OrgAlbumName: ""}).
 				Assign(models.Title{SingleName: t.SingleName}).
 				FirstOrCreate(&models.Title{})
 		}

@@ -98,7 +98,7 @@ func PushRecords(c *gin.Context) {
 	}
 
 	now := time.Now()
-	corrections := loadTitleMap()
+	titleMaps := loadTitleMap()
 
 	// 批次查出已存在的 source_url，避免在迴圈中逐筆查詢
 	sourceURLs := make([]string, 0, len(req.Records))
@@ -126,8 +126,14 @@ func PushRecords(c *gin.Context) {
 		}
 		singleName := r.SingleName
 		if singleName == "" || strings.Contains(singleName, "タイトル未定") {
-			if corrected, ok := corrections[titleKey{Group: r.Group, SingleNumber: r.SingleNumber}]; ok {
-				singleName = corrected
+			if r.SingleNumber > 0 {
+				if corrected, ok := titleMaps.Singles[titleKey{Group: r.Group, SingleNumber: r.SingleNumber}]; ok {
+					singleName = corrected
+				}
+			} else if r.SingleName != "" {
+				if corrected, ok := titleMaps.Albums[albumCorrKey{Group: r.Group, OrgAlbumName: r.SingleName}]; ok {
+					singleName = corrected
+				}
 			}
 		}
 		rec := models.Record{
@@ -240,7 +246,7 @@ func UpdateTitles(c *gin.Context) {
 		return
 	}
 
-	corrections := loadTitleMap()
+	titleMaps := loadTitleMap()
 	updated := 0
 	for _, u := range req.Updates {
 		if u.SingleName == "" {
@@ -248,8 +254,14 @@ func UpdateTitles(c *gin.Context) {
 		}
 		singleName := u.SingleName
 		if singleName == "" || strings.Contains(singleName, "タイトル未定") {
-			if corrected, ok := corrections[titleKey{Group: u.Group, SingleNumber: u.SingleNumber}]; ok {
-				singleName = corrected
+			if u.SingleNumber > 0 {
+				if corrected, ok := titleMaps.Singles[titleKey{Group: u.Group, SingleNumber: u.SingleNumber}]; ok {
+					singleName = corrected
+				}
+			} else if u.SingleName != "" {
+				if corrected, ok := titleMaps.Albums[albumCorrKey{Group: u.Group, OrgAlbumName: u.SingleName}]; ok {
+					singleName = corrected
+				}
 			}
 		}
 		result := db.DB.Model(&models.Record{}).

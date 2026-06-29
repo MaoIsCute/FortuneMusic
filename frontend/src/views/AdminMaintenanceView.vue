@@ -17,7 +17,7 @@
           <el-select v-model="del.userId" placeholder="選擇使用者" style="width:200px" clearable @change="clearPreview">
             <el-option v-for="u in users" :key="u.id" :label="`${u.name} (${u.email})`" :value="u.id" />
           </el-select>
-          <el-select v-if="del.recordType !== 'purchases'" v-model="del.group" placeholder="團體（全部）" clearable style="width:120px" @change="clearPreview">
+          <el-select v-model="del.group" placeholder="團體（全部）" clearable style="width:120px" @change="clearPreview">
             <el-option label="乃木坂46" value="nogizaka46" />
             <el-option label="櫻坂46" value="sakurazaka46" />
             <el-option label="日向坂46" value="hinatazaka46" />
