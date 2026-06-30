@@ -18,7 +18,9 @@
         </el-option>
       </el-select>
       <el-select v-model="filterMember" placeholder="選擇成員" clearable @change="loadRecords">
-        <el-option v-for="m in memberList" :key="m" :label="m" :value="m" />
+        <el-option v-for="m in memberList" :key="m.name" :label="m.name" :value="m.name">
+          <span :style="{ color: GROUP_COLORS[m.group] }">{{ m.name }}</span>
+        </el-option>
       </el-select>
       <el-select v-model="filterSingle" placeholder="選擇單曲" clearable @change="loadRecords">
         <el-option v-for="s in singleList" :key="s.name" :label="formatSingle(s.name)" :value="s.name">
@@ -98,7 +100,9 @@ async function reloadFilterLists() {
     getStatsByMember(groupParam),
     getDetailStats(groupParam),
   ])
-  memberList.value = sortMembersByGen((membersRes.data ?? []).map(m => m.member_name))
+  const nameGroupMap = new Map()
+  ;(membersRes.data ?? []).forEach(m => nameGroupMap.set(m.member_name, m.group || ''))
+  memberList.value = sortMembersByGen([...nameGroupMap.keys()]).map(name => ({ name, group: nameGroupMap.get(name) }))
   const rows = detailRes.data ?? []
   // 單曲以 single_number 去重（避免同一張單曲有新舊兩種名稱時出現重複選項），
   // 名稱優先取非 タイトル未定/非空的版本；專輯（single_number=0）沒有可靠編號，改用名稱本身當 key

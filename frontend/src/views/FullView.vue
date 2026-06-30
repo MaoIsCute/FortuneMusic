@@ -16,7 +16,9 @@
           </el-option>
         </el-select>
         <el-select v-model="filterMember" placeholder="選擇成員" clearable @change="loadRecords">
-          <el-option v-for="m in memberList" :key="m" :label="m" :value="m" />
+          <el-option v-for="m in memberList" :key="m.name" :label="m.name" :value="m.name">
+            <span :style="{ color: GROUP_COLORS[m.group || filterGroup] }">{{ m.name }}</span>
+          </el-option>
         </el-select>
         <el-select v-model="filterType" placeholder="類型" clearable @change="onTypeChange" style="width:100px">
           <el-option label="実体" value="実体" />
@@ -110,9 +112,9 @@ async function reloadFilterLists() {
     getFullStatsBySingle(groupParam),
   ])
   const memberStats = memberRes.data ?? []
-  const allNames = new Set()
-  memberStats.forEach(m => m.member_name.split('・').forEach(n => n.trim() && allNames.add(n.trim())))
-  memberList.value = sortMembersByGen([...allNames])
+  const nameGroupMap = new Map()
+  memberStats.forEach(m => m.member_name.split('・').forEach(n => { n = n.trim(); if (n) nameGroupMap.set(n, m.group || '') }))
+  memberList.value = sortMembersByGen([...nameGroupMap.keys()]).map(name => ({ name, group: nameGroupMap.get(name) }))
   venueList.value = [...new Set((statsRes.data.by_type ?? []).map(r => r.venue).filter(v => v))]
   singleList.value = singleRes.data ?? []
 }

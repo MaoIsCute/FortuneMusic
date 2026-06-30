@@ -135,6 +135,7 @@ c.JSON(http.StatusOK, gin.H{
 }
 
 type groupedStat struct {
+Group        string  `json:"group,omitempty"`
 MemberName   string  `json:"member_name"`
 EventDate    string  `json:"event_date,omitempty"`
 Session      string  `json:"session,omitempty"`
@@ -159,8 +160,8 @@ func GetStatsByMember(c *gin.Context) {
 		q = q.Where(`"group" = ?`, grp)
 	}
 	var rows []groupedStat
-	q.Select("member_name, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won").
-		Group("member_name").
+	q.Select(`"group", member_name, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won`).
+		Group(`"group", member_name`).
 		Order("total_won DESC").
 		Scan(&rows)
 	c.JSON(http.StatusOK, calcWinRate(rows))

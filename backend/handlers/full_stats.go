@@ -58,15 +58,16 @@ func GetFullStatsByMember(c *gin.Context) {
 	}
 
 	type Row struct {
+		Group        string  `json:"group"`
 		MemberName   string  `json:"member_name"`
 		TotalApplied int     `json:"total_applied"`
 		TotalWon     int     `json:"total_won"`
 		WinRate      float64 `json:"win_rate"`
 	}
 	var rows []Row
-	query.Select("member_name, SUM(applied_count) as total_applied, SUM(won_count) as total_won, "+
-		"ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count),0) * 100, 1) as win_rate").
-		Group("member_name").
+	query.Select(`"group", member_name, SUM(applied_count) as total_applied, SUM(won_count) as total_won, ` +
+		`ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count),0) * 100, 1) as win_rate`).
+		Group(`"group", member_name`).
 		Order("total_applied DESC").
 		Scan(&rows)
 
