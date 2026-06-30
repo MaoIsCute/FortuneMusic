@@ -112,12 +112,22 @@ async function reloadFilterLists() {
     if (r.single_number > 0) {
       const existing = singleMap.get(r.single_number)
       if (!existing || existing.name.includes('タイトル未定') || existing.name === '')
-        singleMap.set(r.single_number, { name: r.single_name, group: r.group })
+        singleMap.set(r.single_number, { name: r.single_name, group: r.group, singleNumber: r.single_number })
     } else {
-      singleMap.set(`a:${r.single_name}`, { name: r.single_name, group: r.group })
+      singleMap.set(`a:${r.single_name}`, { name: r.single_name, group: r.group, singleNumber: 0 })
     }
   }
-  singleList.value = [...singleMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ja'))
+  const GROUP_ORDER = { nogizaka46: 0, sakurazaka46: 1, hinatazaka46: 2 }
+  singleList.value = [...singleMap.values()].sort((a, b) => {
+    const gd = (GROUP_ORDER[a.group] ?? 9) - (GROUP_ORDER[b.group] ?? 9)
+    if (gd !== 0) return gd
+    if (a.singleNumber !== b.singleNumber) {
+      if (a.singleNumber === 0) return 1  // 專輯排在單曲後面
+      if (b.singleNumber === 0) return -1
+      return a.singleNumber - b.singleNumber
+    }
+    return a.name.localeCompare(b.name, 'ja')
+  })
   roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) => a - b)
 }
 
