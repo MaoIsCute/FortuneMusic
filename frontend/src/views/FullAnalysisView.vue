@@ -69,7 +69,9 @@
 
         <div class="detail-filters">
           <el-select v-model="detailMember" placeholder="選擇成員" clearable style="width:160px" @change="loadDetail">
-            <el-option v-for="m in memberList" :key="m" :label="m" :value="m" />
+            <el-option v-for="m in memberList" :key="m.name" :label="m.name" :value="m.name">
+            <span :style="{ color: GROUP_COLORS[m.group] }">{{ m.name }}</span>
+          </el-option>
           </el-select>
           <el-select v-model="detailType" placeholder="類型（全部）" clearable style="width:120px" @change="onDetailTypeChange">
             <el-option label="実体" value="実体" />
@@ -126,7 +128,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { getFullOverallStats, getFullStatsByMember, getFullDetailStats, getFullStatsBySingle } from '../api/index'
-import { sortMembersByGen } from '../utils/members'
+import { sortMembersByGroupAndGen } from '../utils/members'
+
+const GROUP_COLORS = { nogizaka46: '#9333ea', sakurazaka46: '#ec4899', hinatazaka46: '#0ea5e9' }
 
 const overall    = ref({ total_applied: 0, total_won: 0 })
 const byType     = ref([])
@@ -222,9 +226,9 @@ onMounted(async () => {
   byType.value  = (statsRes.data.by_type ?? []).map(r => ({ ...r, win_rate_num: parseFloat(r.win_rate) }))
   venueList.value = [...new Set(byType.value.map(r => r.venue).filter(v => v))]
   await loadMemberStats()
-  const allNames = new Set()
-  memberStats.value.forEach(m => m.member_name.split('・').forEach(n => n.trim() && allNames.add(n.trim())))
-  memberList.value = sortMembersByGen([...allNames])
+  const nameGroupMap = new Map()
+  memberStats.value.forEach(m => m.member_name.split('・').forEach(n => { n = n.trim(); if (n) nameGroupMap.set(n, m.group || '') }))
+  memberList.value = sortMembersByGroupAndGen([...nameGroupMap.entries()].map(([name, group]) => ({ name, group })))
 })
 
 function rateClass(rate) {

@@ -51,7 +51,9 @@
       <div class="chart-title">各部中選率</div>
       <div class="chart-filters">
         <el-select v-model="barFilterMember" placeholder="選擇成員" clearable size="small">
-          <el-option v-for="m in allMembers" :key="m" :label="m" :value="m" />
+          <el-option v-for="m in allMembers" :key="m.name" :label="m.name" :value="m.name">
+            <span :style="{ color: GROUP_COLORS[m.group] }">{{ m.name }}</span>
+          </el-option>
         </el-select>
         <el-select v-model="barFilterRound" placeholder="選擇抽次" clearable size="small">
           <el-option v-for="r in allRounds" :key="r" :label="formatRound(r)" :value="r" />
@@ -66,7 +68,9 @@
       <div class="chart-title">各筆應募中選率</div>
       <div class="chart-filters">
         <el-select v-model="seqFilterMember" placeholder="選擇成員" clearable size="small" @change="fetchSeqChart">
-          <el-option v-for="m in allMembers" :key="m" :label="m" :value="m" />
+          <el-option v-for="m in allMembers" :key="m.name" :label="m.name" :value="m.name">
+            <span :style="{ color: GROUP_COLORS[m.group] }">{{ m.name }}</span>
+          </el-option>
         </el-select>
         <el-select v-model="seqFilterSession" placeholder="選擇部數" clearable size="small" @change="fetchSeqChart">
           <el-option v-for="s in allSessions" :key="s" :label="s" :value="s" />
@@ -91,7 +95,9 @@
         size="small"
         class="member-filter-select"
       >
-        <el-option v-for="m in allMembers" :key="m" :label="m" :value="m" />
+        <el-option v-for="m in allMembers" :key="m.name" :label="m.name" :value="m.name">
+          <span :style="{ color: GROUP_COLORS[m.group] }">{{ m.name }}</span>
+        </el-option>
       </el-select>
       <button
         :class="['range-btn', { active: showActiveOnly }]"
@@ -198,7 +204,7 @@ import { useDataStore } from '../stores/data'
 import { detectExtension } from '../utils/extension'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
-import { getMemberInfo, sortMembersByGen } from '../utils/members'
+import { getMemberInfo, sortMembersByGroupAndGen } from '../utils/members'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -206,6 +212,8 @@ import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers'
 
 use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+
+const GROUP_COLORS = { nogizaka46: '#9333ea', sakurazaka46: '#ec4899', hinatazaka46: '#0ea5e9' }
 
 const router = useRouter()
 const themeStore = useThemeStore()
@@ -461,9 +469,11 @@ const seqChartOption = computed(() => {
 const barFilterMember = ref('')
 const barFilterRound  = ref('')
 
-const allMembers = computed(() =>
-  sortMembersByGen([...new Set(rows.value.map(r => r.member_name))])
-)
+const allMembers = computed(() => {
+  const nameGroupMap = new Map()
+  rows.value.forEach(r => nameGroupMap.set(r.member_name, r.group || ''))
+  return sortMembersByGroupAndGen([...nameGroupMap.entries()].map(([name, group]) => ({ name, group })))
+})
 
 const allRounds = computed(() => {
   const set = new Set()

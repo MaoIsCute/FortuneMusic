@@ -66,7 +66,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { getRecords, getStatsByMember, getDetailStats } from '../api/index'
-import { sortMembersByGen } from '../utils/members'
+import { sortMembersByGroupAndGen } from '../utils/members'
 import { useDataStore } from '../stores/data'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
@@ -102,7 +102,7 @@ async function reloadFilterLists() {
   ])
   const nameGroupMap = new Map()
   ;(membersRes.data ?? []).forEach(m => nameGroupMap.set(m.member_name, m.group || ''))
-  memberList.value = sortMembersByGen([...nameGroupMap.keys()]).map(name => ({ name, group: nameGroupMap.get(name) }))
+  memberList.value = sortMembersByGroupAndGen([...nameGroupMap.entries()].map(([name, group]) => ({ name, group })))
   const rows = detailRes.data ?? []
   // 單曲以 single_number 去重（避免同一張單曲有新舊兩種名稱時出現重複選項），
   // 名稱優先取非 タイトル未定/非空的版本；專輯（single_number=0）沒有可靠編號，改用名稱本身當 key

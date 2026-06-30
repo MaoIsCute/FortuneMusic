@@ -84,7 +84,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getFullRecords, getFullOverallStats, getFullStatsByMember, getFullStatsBySingle } from '../api/index'
-import { sortMembersByGen } from '../utils/members'
+import { sortMembersByGroupAndGen } from '../utils/members'
 
 const GROUP_COLORS = { nogizaka46: '#9333ea', sakurazaka46: '#ec4899', hinatazaka46: '#0ea5e9' }
 
@@ -114,7 +114,7 @@ async function reloadFilterLists() {
   const memberStats = memberRes.data ?? []
   const nameGroupMap = new Map()
   memberStats.forEach(m => m.member_name.split('・').forEach(n => { n = n.trim(); if (n) nameGroupMap.set(n, m.group || '') }))
-  memberList.value = sortMembersByGen([...nameGroupMap.keys()]).map(name => ({ name, group: nameGroupMap.get(name) }))
+  memberList.value = sortMembersByGroupAndGen([...nameGroupMap.entries()].map(([name, group]) => ({ name, group })))
   venueList.value = [...new Set((statsRes.data.by_type ?? []).map(r => r.venue).filter(v => v))]
   singleList.value = singleRes.data ?? []
 }

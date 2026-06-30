@@ -235,3 +235,18 @@ export function sortMembersByGen(names) {
     return a.localeCompare(b, 'ja')
   })
 }
+
+const GROUP_ORDER = { nogizaka46: 0, sakurazaka46: 1, hinatazaka46: 2 }
+
+// 以 group 欄位為主排序（乃木坂→櫻坂→日向坂），group 內再按 gen 排
+// entries: Array of { name: string, group: string }
+export function sortMembersByGroupAndGen(entries) {
+  return [...entries].sort((a, b) => {
+    const gd = (GROUP_ORDER[a.group] ?? 9) - (GROUP_ORDER[b.group] ?? 9)
+    if (gd !== 0) return gd
+    const ga = getMemberInfo(a.name).gen ?? 99
+    const gb = getMemberInfo(b.name).gen ?? 99
+    if (ga !== gb) return ga - gb
+    return a.name.localeCompare(b.name, 'ja')
+  })
+}
