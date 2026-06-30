@@ -5,9 +5,15 @@
     <div class="card">
       <div class="filters">
         <el-select v-model="filterGroup" placeholder="團體" clearable style="width:120px" @change="onGroupChange">
-          <el-option label="乃木坂46" value="nogizaka46" />
-          <el-option label="櫻坂46" value="sakurazaka46" />
-          <el-option label="日向坂46" value="hinatazaka46" />
+          <el-option label="乃木坂46" value="nogizaka46">
+            <span :style="{ color: GROUP_COLORS.nogizaka46, fontWeight: 500 }">乃木坂46</span>
+          </el-option>
+          <el-option label="櫻坂46" value="sakurazaka46">
+            <span :style="{ color: GROUP_COLORS.sakurazaka46, fontWeight: 500 }">櫻坂46</span>
+          </el-option>
+          <el-option label="日向坂46" value="hinatazaka46">
+            <span :style="{ color: GROUP_COLORS.hinatazaka46, fontWeight: 500 }">日向坂46</span>
+          </el-option>
         </el-select>
         <el-select v-model="filterMember" placeholder="選擇成員" clearable @change="loadRecords">
           <el-option v-for="m in memberList" :key="m" :label="m" :value="m" />
@@ -21,7 +27,9 @@
           <el-option v-for="v in venueList" :key="v" :label="v" :value="v" />
         </el-select>
         <el-select v-model="filterSingle" placeholder="單曲" clearable @change="loadRecords" style="width:100px">
-          <el-option v-for="s in singleList" :key="s.single_number" :label="formatSingle(s.single_name)" :value="s.single_number" />
+          <el-option v-for="s in singleList" :key="`${s.group}:${s.single_number}`" :label="formatSingle(s.single_name)" :value="s.single_number">
+            <span :style="{ color: GROUP_COLORS[s.group || filterGroup] }">{{ formatSingle(s.single_name) }}</span>
+          </el-option>
         </el-select>
         <el-select v-model="filterRound" placeholder="抽次" clearable @change="loadRecords" style="width:100px">
           <el-option label="1抽" :value="1" />
@@ -75,6 +83,8 @@
 import { ref, onMounted } from 'vue'
 import { getFullRecords, getFullOverallStats, getFullStatsByMember, getFullStatsBySingle } from '../api/index'
 import { sortMembersByGen } from '../utils/members'
+
+const GROUP_COLORS = { nogizaka46: '#9333ea', sakurazaka46: '#ec4899', hinatazaka46: '#0ea5e9' }
 
 const memberList = ref([])
 const venueList  = ref([])

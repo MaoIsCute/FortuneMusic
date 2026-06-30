@@ -18,9 +18,15 @@
             <el-option v-for="u in users" :key="u.id" :label="`${u.name} (${u.email})`" :value="u.id" />
           </el-select>
           <el-select v-model="del.group" placeholder="團體（全部）" clearable style="width:120px" @change="clearPreview">
-            <el-option label="乃木坂46" value="nogizaka46" />
-            <el-option label="櫻坂46" value="sakurazaka46" />
-            <el-option label="日向坂46" value="hinatazaka46" />
+            <el-option label="乃木坂46" value="nogizaka46">
+              <span style="color:#9333ea;font-weight:500">乃木坂46</span>
+            </el-option>
+            <el-option label="櫻坂46" value="sakurazaka46">
+              <span style="color:#ec4899;font-weight:500">櫻坂46</span>
+            </el-option>
+            <el-option label="日向坂46" value="hinatazaka46">
+              <span style="color:#0ea5e9;font-weight:500">日向坂46</span>
+            </el-option>
           </el-select>
           <el-select v-model="del.mode" style="width:140px" @change="clearPreview">
             <el-option label="全部" value="all" />

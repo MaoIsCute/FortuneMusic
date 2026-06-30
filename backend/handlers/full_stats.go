@@ -110,6 +110,7 @@ func GetFullStatsBySingle(c *gin.Context) {
 	userID := getUserID(c)
 
 	type Row struct {
+		Group        string  `json:"group"`
 		SingleNumber int     `json:"single_number"`
 		SingleName   string  `json:"single_name"`
 		TotalApplied int     `json:"total_applied"`
@@ -122,10 +123,10 @@ func GetFullStatsBySingle(c *gin.Context) {
 		q = q.Where(`"group" = ?`, grp)
 	}
 	q.
-		Select("single_number, single_name, SUM(applied_count) as total_applied, SUM(won_count) as total_won, "+
-			"ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count),0) * 100, 1) as win_rate").
-		Group("single_number, single_name").
-		Order("single_number DESC").
+		Select(`"group", single_number, single_name, SUM(applied_count) as total_applied, SUM(won_count) as total_won, ` +
+			`ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count),0) * 100, 1) as win_rate`).
+		Group(`"group", single_number, single_name`).
+		Order(`"group", single_number DESC`).
 		Scan(&rows)
 
 	c.JSON(http.StatusOK, rows)

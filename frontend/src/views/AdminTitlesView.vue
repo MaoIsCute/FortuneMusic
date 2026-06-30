@@ -59,9 +59,15 @@
         </template>
         <p class="sub-text">只列出資料庫裡已經出現過的單曲，不是官方完整發行紀錄；專輯（單曲號 0）沒有可靠編號，以名稱本身互相區分，同一團體的多張專輯會各自列出。</p>
         <el-select v-model="knownGroupFilter" placeholder="團體（全部）" clearable style="width:140px;margin-bottom:12px">
-          <el-option label="乃木坂46" value="nogizaka46" />
-          <el-option label="櫻坂46" value="sakurazaka46" />
-          <el-option label="日向坂46" value="hinatazaka46" />
+          <el-option label="乃木坂46" value="nogizaka46">
+            <span style="color:#9333ea;font-weight:500">乃木坂46</span>
+          </el-option>
+          <el-option label="櫻坂46" value="sakurazaka46">
+            <span style="color:#ec4899;font-weight:500">櫻坂46</span>
+          </el-option>
+          <el-option label="日向坂46" value="hinatazaka46">
+            <span style="color:#0ea5e9;font-weight:500">日向坂46</span>
+          </el-option>
         </el-select>
         <div v-if="filteredKnownTitles.length === 0" class="empty">沒有資料</div>
         <el-table table-layout="auto" v-else :data="filteredKnownTitles" stripe size="small" max-height="500">

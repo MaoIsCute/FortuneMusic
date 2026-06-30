@@ -7,15 +7,23 @@
     <template v-else>
     <div class="filters">
       <el-select v-model="filterGroup" placeholder="團體" clearable style="width:120px" @change="onGroupChange">
-        <el-option label="乃木坂46" value="nogizaka46" />
-        <el-option label="櫻坂46" value="sakurazaka46" />
-        <el-option label="日向坂46" value="hinatazaka46" />
+        <el-option label="乃木坂46" value="nogizaka46">
+          <span :style="{ color: GROUP_COLORS.nogizaka46, fontWeight: 500 }">乃木坂46</span>
+        </el-option>
+        <el-option label="櫻坂46" value="sakurazaka46">
+          <span :style="{ color: GROUP_COLORS.sakurazaka46, fontWeight: 500 }">櫻坂46</span>
+        </el-option>
+        <el-option label="日向坂46" value="hinatazaka46">
+          <span :style="{ color: GROUP_COLORS.hinatazaka46, fontWeight: 500 }">日向坂46</span>
+        </el-option>
       </el-select>
       <el-select v-model="filterMember" placeholder="選擇成員" clearable @change="loadRecords">
         <el-option v-for="m in memberList" :key="m" :label="m" :value="m" />
       </el-select>
       <el-select v-model="filterSingle" placeholder="選擇單曲" clearable @change="loadRecords">
-        <el-option v-for="s in singleList" :key="s" :label="formatSingle(s)" :value="s" />
+        <el-option v-for="s in singleList" :key="s.name" :label="formatSingle(s.name)" :value="s.name">
+          <span :style="{ color: GROUP_COLORS[s.group] }">{{ formatSingle(s.name) }}</span>
+        </el-option>
       </el-select>
       <el-select v-model="filterRound" placeholder="選擇次數" clearable @change="loadRecords">
         <el-option v-for="r in roundList" :key="r" :label="formatRound(r)" :value="r" />
@@ -61,6 +69,8 @@ import { useDataStore } from '../stores/data'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
 
+const GROUP_COLORS = { nogizaka46: '#9333ea', sakurazaka46: '#ec4899', hinatazaka46: '#0ea5e9' }
+
 const records  = ref([])
 const total    = ref(0)
 const page     = ref(1)
@@ -97,13 +107,13 @@ async function reloadFilterLists() {
     if (!r.single_name) continue
     if (r.single_number > 0) {
       const existing = singleMap.get(r.single_number)
-      if (!existing || existing.includes('タイトル未定') || existing === '')
-        singleMap.set(r.single_number, r.single_name)
+      if (!existing || existing.name.includes('タイトル未定') || existing.name === '')
+        singleMap.set(r.single_number, { name: r.single_name, group: r.group })
     } else {
-      singleMap.set(`a:${r.single_name}`, r.single_name)
+      singleMap.set(`a:${r.single_name}`, { name: r.single_name, group: r.group })
     }
   }
-  singleList.value = [...singleMap.values()].sort()
+  singleList.value = [...singleMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ja'))
   roundList.value  = [...new Set(rows.map(r => r.lottery_round).filter(Boolean))].sort((a, b) => a - b)
 }
 

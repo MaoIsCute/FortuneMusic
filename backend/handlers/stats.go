@@ -194,6 +194,7 @@ func GetDetailStats(c *gin.Context) {
 	userID := getUserID(c)
 
 	type detailRow struct {
+		Group        string  `json:"group"`
 		MemberName   string  `json:"member_name"`
 		SingleNumber int     `json:"single_number"`
 		SingleName   string  `json:"single_name"`
@@ -210,9 +211,9 @@ func GetDetailStats(c *gin.Context) {
 		q = q.Where(`"group" = ?`, grp)
 	}
 	var rows []detailRow
-	q.Select("member_name, single_number, MAX(single_name) as single_name, lottery_round, event_date, session, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won").
-		Group("member_name, single_number, lottery_round, event_date, session").
-		Order("member_name, single_number, lottery_round, event_date, session").
+	q.Select(`"group", member_name, single_number, MAX(single_name) as single_name, lottery_round, event_date, session, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won`).
+		Group(`"group", member_name, single_number, lottery_round, event_date, session`).
+		Order(`"group", member_name, single_number, lottery_round, event_date, session`).
 		Scan(&rows)
 
 	for i := range rows {
