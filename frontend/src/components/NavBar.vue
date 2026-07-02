@@ -19,6 +19,7 @@
           <a @click="go('/full')">全握紀錄</a>
           <a @click="go('/full/spending')">全握花費</a>
           <a @click="go('/full/analysis')">全握分析</a>
+          <a @click="go('/full/sign-events')">簽名會紀錄</a>
         </div>
       </div>
 
@@ -58,7 +59,7 @@ const auth = useAuthStore()
 const isDark = computed(() => themeStore.isDark)
 const isAdmin = computed(() => !!auth.user?.is_admin)
 const isRecordsActive = computed(() => ['/records', '/spending', '/records/analysis'].includes(route.path))
-const isFullActive    = computed(() => ['/full', '/full/spending', '/full/analysis'].includes(route.path))
+const isFullActive    = computed(() => ['/full', '/full/spending', '/full/analysis', '/full/sign-events'].includes(route.path))
 const isAdminActive   = computed(() => route.path.startsWith('/admin'))
 
 const openMenu = ref(null)

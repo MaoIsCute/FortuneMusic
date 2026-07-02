@@ -71,14 +71,32 @@
         </el-select>
         <div v-if="filteredKnownTitles.length === 0" class="empty">沒有資料</div>
         <el-table table-layout="auto" v-else :data="filteredKnownTitles" stripe size="small" max-height="500">
-          <el-table-column label="團體" min-width="70">
-            <template #default="{ row }">{{ groupLabel(row.group) }}</template>
+          <el-table-column label="團體" min-width="120">
+            <template #default="{ row }">
+              <el-select v-if="row._editing" v-model="row._group" size="small" style="width:110px">
+                <el-option v-for="g in GROUP_OPTIONS" :key="g.value" :value="g.value" :label="g.label">
+                  <span :style="{ color: g.color, fontWeight: 500 }">{{ g.label }}</span>
+                </el-option>
+                <template #prefix>
+                  <span :style="{ color: GROUP_COLORS[row._group], fontWeight: 600 }">●</span>
+                </template>
+              </el-select>
+              <span v-else :style="{ color: GROUP_COLORS[row.group], fontWeight: 500 }">{{ groupLabel(row.group) }}</span>
+            </template>
           </el-table-column>
           <el-table-column prop="single_number" label="單曲號" min-width="60" />
-          <el-table-column label="單曲名稱" min-width="320">
+          <el-table-column label="單曲名稱" min-width="300">
             <template #default="{ row }">
               <el-input v-if="row._editing" v-model="row._input" size="small" style="width:100%" />
-              <span v-else>{{ row.single_name }}</span>
+              <span v-else :style="{ color: GROUP_COLORS[row.group] }">{{ row.single_name }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="發售日" min-width="140">
+            <template #default="{ row }">
+              <el-date-picker v-if="row._editing" v-model="row._date" type="date"
+                value-format="YYYY-MM-DD" format="YYYY-MM-DD"
+                size="small" placeholder="YYYY-MM-DD" style="width:130px" />
+              <span v-else style="color:#888;font-size:12px">{{ row.release_date || '—' }}</span>
             </template>
           </el-table-column>
           <el-table-column label="來源" min-width="90">
@@ -138,6 +156,12 @@ async function fix(row) {
 }
 
 const GROUP_LABELS = { nogizaka46: '乃木坂46', sakurazaka46: '櫻坂46', hinatazaka46: '日向坂46' }
+const GROUP_COLORS = { nogizaka46: '#9333ea', sakurazaka46: '#ec4899', hinatazaka46: '#0ea5e9' }
+const GROUP_OPTIONS = [
+  { value: 'nogizaka46',  label: '乃木坂46', color: '#9333ea' },
+  { value: 'sakurazaka46', label: '櫻坂46',  color: '#ec4899' },
+  { value: 'hinatazaka46', label: '日向坂46', color: '#0ea5e9' },
+]
 function groupLabel(g) {
   return GROUP_LABELS[g] || g || '—'
 }
@@ -207,27 +231,41 @@ function sourceLabel(s) {
 async function loadKnownTitles() {
   try {
     const res = await getAdminKnownTitles()
-    knownTitles.value = (res.data ?? []).map(t => ({ ...t, _editing: false, _input: t.single_name, _loading: false }))
+    knownTitles.value = (res.data ?? []).map(t => ({
+      ...t,
+      _editing: false,
+      _input: t.single_name,
+      _date: t.release_date || '',
+      _group: t.group,
+      _loading: false,
+    }))
   } catch {}
 }
 
 function startEdit(row) {
   row._editing = true
   row._input = row.single_name
+  row._date = row.release_date || ''
+  row._group = row.group
 }
 
 function cancelEdit(row) {
   row._editing = false
   row._input = row.single_name
+  row._date = row.release_date || ''
+  row._group = row.group
 }
 
 async function saveKnown(row) {
   const newName = row._input.trim()
-  if (!newName || newName === row.single_name) { cancelEdit(row); return }
+  const newDate = row._date || ''
+  const newGroup = row._group
+  if (!newName) { cancelEdit(row); return }
+  if (newName === row.single_name && newDate === (row.release_date || '') && newGroup === row.group) { cancelEdit(row); return }
   row._loading = true
   try {
     const orgAlbumName = row.single_number === 0 ? (row.org_album_name || row.single_name) : ''
-    const res = await fixSingleTitle(row.group, row.single_number, newName, orgAlbumName)
+    const res = await fixSingleTitle(newGroup, row.single_number, newName, orgAlbumName, newDate)
     ElMessage.success(`已更新 ${res.data.updated} 筆`)
     await Promise.all([loadKnownTitles(), loadIssues()])
   } catch (e) {

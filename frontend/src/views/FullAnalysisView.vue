@@ -73,7 +73,7 @@
             <span :style="{ color: GROUP_COLORS[m.group] }">{{ m.name }}</span>
           </el-option>
           </el-select>
-          <el-select v-model="detailType" placeholder="類型（全部）" clearable style="width:120px" @change="onDetailTypeChange">
+          <el-select v-model="detailType" style="width:120px" @change="onDetailTypeChange">
             <el-option label="実体" value="実体" />
             <el-option label="線上" value="線上" />
           </el-select>
@@ -91,9 +91,12 @@
         <div v-if="!detailMember" class="empty">請先選擇成員</div>
         <div v-else-if="detailLoading" class="empty">載入中...</div>
         <div v-else-if="detailRows.length === 0" class="empty">無資料</div>
-        <el-table v-else :data="detailRows" stripe border>
+        <el-table v-else :data="detailRows" stripe border table-layout="auto">
           <el-table-column label="單曲" width="90" fixed>
-            <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
+            <template #default="{ row }">{{ formatSingle(row.single_name) || row.single_number + '單' }}</template>
+          </el-table-column>
+          <el-table-column label="場地" min-width="120">
+            <template #default="{ row }">{{ row.venue || '—' }}</template>
           </el-table-column>
           <el-table-column label="搭檔" width="130">
             <template #default="{ row }">
@@ -102,21 +105,28 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-for="col in detailColumns"
-            :key="col.key"
-            :label="col.label"
+            v-for="session in detailSessions"
+            :key="session"
+            :label="session || '—'"
             align="center"
-            width="90"
           >
-            <template #default="{ row }">
-              <template v-if="row.cells[col.key]">
-                <span :class="rateClass((row.cells[col.key].won / row.cells[col.key].applied * 100).toFixed(1))">
-                  {{ (row.cells[col.key].won / row.cells[col.key].applied * 100).toFixed(1) }}%
-                </span>
-                <div class="detail-sub">{{ row.cells[col.key].won }}/{{ row.cells[col.key].applied }}</div>
+            <el-table-column
+              v-for="round in selectedRoundsSorted"
+              :key="round"
+              :label="round + '抽'"
+              align="center"
+              width="80"
+            >
+              <template #default="{ row }">
+                <template v-if="row.cells[`${session}:${round}`]">
+                  <span :class="rateClass((row.cells[`${session}:${round}`].won / row.cells[`${session}:${round}`].applied * 100).toFixed(1))">
+                    {{ (row.cells[`${session}:${round}`].won / row.cells[`${session}:${round}`].applied * 100).toFixed(1) }}%
+                  </span>
+                  <div class="detail-sub">{{ row.cells[`${session}:${round}`].won }}/{{ row.cells[`${session}:${round}`].applied }}</div>
+                </template>
+                <span v-else class="text-muted">—</span>
               </template>
-              <span v-else class="text-muted">—</span>
-            </template>
+            </el-table-column>
           </el-table-column>
         </el-table>
       </el-collapse-item>
@@ -144,9 +154,9 @@ const memberFilterVenue = ref('')
 const openSections = ref(['type', 'member'])
 
 const detailMember   = ref('')
-const detailType     = ref('')
+const detailType     = ref('実体')
 const detailVenue    = ref('')
-const selectedRounds = ref([1, 1.5])
+const selectedRounds = ref([1])
 const detailData     = ref([])
 const detailLoading  = ref(false)
 
@@ -155,28 +165,19 @@ const overallRate = computed(() => {
   return (overall.value.total_won / overall.value.total_applied * 100).toFixed(1)
 })
 
-const detailColumns = computed(() => {
-  const sessions = [...new Set(detailData.value.map(r => r.session))].sort()
-  const rounds   = [...selectedRounds.value].sort((a, b) => a - b)
-  const cols = []
-  for (const session of sessions) {
-    for (const round of rounds) {
-      const label = rounds.length === 1 ? (session || '—') : `${session || '—'} ${round}抽`
-      cols.push({ session, round, label, key: `${session}:${round}` })
-    }
-  }
-  return cols
-})
+const detailSessions      = computed(() => [...new Set(detailData.value.map(r => r.session))].sort())
+const selectedRoundsSorted = computed(() => [...selectedRounds.value].sort((a, b) => a - b))
 
 const detailRows = computed(() => {
   const map = {}
   detailData.value.forEach(r => {
-    const key = `${r.single_number}:${r.member_name}`
+    const key = `${r.single_number}:${r.member_name}:${r.venue}`
     if (!map[key]) {
       const partners = r.member_name.split('・').filter(n => n !== detailMember.value)
       map[key] = {
         single_number: r.single_number,
         single_name:   r.single_name,
+        venue:         r.venue || '',
         partner:       partners.length > 0 ? partners.join('・') : '',
         cells: {},
       }
@@ -184,7 +185,9 @@ const detailRows = computed(() => {
     map[key].cells[`${r.session}:${r.lottery_round}`] = { applied: r.total_applied, won: r.total_won }
   })
   return Object.values(map).sort((a, b) =>
-    a.single_number !== b.single_number ? a.single_number - b.single_number : a.partner.localeCompare(b.partner)
+    a.single_number !== b.single_number
+      ? a.single_number - b.single_number
+      : a.venue.localeCompare(b.venue) || a.partner.localeCompare(b.partner)
   )
 })
 

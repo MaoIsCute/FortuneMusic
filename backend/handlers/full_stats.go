@@ -81,6 +81,7 @@ func GetFullDetailStats(c *gin.Context) {
 		SingleNumber int     `json:"single_number"`
 		SingleName   string  `json:"single_name"`
 		MemberName   string  `json:"member_name"`
+		Venue        string  `json:"venue"`
 		Session      string  `json:"session"`
 		LotteryRound float64 `json:"lottery_round"`
 		TotalApplied int     `json:"total_applied"`
@@ -99,9 +100,9 @@ func GetFullDetailStats(c *gin.Context) {
 	}
 
 	var rows []Row
-	query.Select("single_number, single_name, member_name, session, lottery_round, SUM(applied_count) as total_applied, SUM(won_count) as total_won").
-		Group("single_number, single_name, member_name, session, lottery_round").
-		Order("single_number ASC, member_name ASC, session ASC, lottery_round ASC").
+	query.Select("single_number, single_name, member_name, venue, session, lottery_round, SUM(applied_count) as total_applied, SUM(won_count) as total_won").
+		Group("single_number, single_name, member_name, venue, session, lottery_round").
+		Order("single_number ASC, member_name ASC, venue ASC, session ASC, lottery_round ASC").
 		Scan(&rows)
 
 	c.JSON(http.StatusOK, rows)
@@ -114,6 +115,7 @@ func GetFullStatsBySingle(c *gin.Context) {
 		Group        string  `json:"group"`
 		SingleNumber int     `json:"single_number"`
 		SingleName   string  `json:"single_name"`
+		ReleaseDate  string  `json:"release_date"`
 		TotalApplied int     `json:"total_applied"`
 		TotalWon     int     `json:"total_won"`
 		WinRate      float64 `json:"win_rate"`
@@ -121,13 +123,15 @@ func GetFullStatsBySingle(c *gin.Context) {
 	var rows []Row
 	q := db.DB.Model(&models.FullRecord{}).Where("user_id = ?", userID)
 	if grp := c.Query("group"); grp != "" {
-		q = q.Where(`"group" = ?`, grp)
+		q = q.Where(`full_records."group" = ?`, grp)
 	}
-	q.
-		Select(`"group", single_number, single_name, SUM(applied_count) as total_applied, SUM(won_count) as total_won, ` +
-			`ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count),0) * 100, 1) as win_rate`).
-		Group(`"group", single_number, single_name`).
-		Order(`"group", single_number DESC`).
+	q.Joins(`LEFT JOIN titles t ON t."group" = full_records."group" AND t.single_number = full_records.single_number AND t.org_album_name = ''`).
+		Select(`full_records."group", full_records.single_number, full_records.single_name, ` +
+			`COALESCE(TO_CHAR(t.release_date, 'YYYY-MM-DD'), '') as release_date, ` +
+			`SUM(full_records.applied_count) as total_applied, SUM(full_records.won_count) as total_won, ` +
+			`ROUND(SUM(full_records.won_count)::numeric / NULLIF(SUM(full_records.applied_count),0) * 100, 1) as win_rate`).
+		Group(`full_records."group", full_records.single_number, full_records.single_name, t.release_date`).
+		Order(`full_records."group", full_records.single_number DESC`).
 		Scan(&rows)
 
 	c.JSON(http.StatusOK, rows)

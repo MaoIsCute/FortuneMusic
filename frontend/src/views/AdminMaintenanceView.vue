@@ -13,6 +13,7 @@
             <el-option label="個握" value="records" />
             <el-option label="全握" value="full-records" />
             <el-option label="個握花費" value="purchases" />
+            <el-option label="簽名會" value="sign-events" />
           </el-select>
           <el-select v-model="del.userId" placeholder="選擇使用者" style="width:200px" clearable @change="clearPreview">
             <el-option v-for="u in users" :key="u.id" :label="`${u.name} (${u.email})`" :value="u.id" />
@@ -84,6 +85,26 @@
               </el-table-column>
               <el-table-column prop="applied_count" label="應募" min-width="60" align="right" />
               <el-table-column prop="won_count" label="中選" min-width="60" align="right" />
+            </el-table>
+
+            <!-- 簽名會 -->
+            <el-table table-layout="auto" v-else-if="del.recordType === 'sign-events'" :data="previewData" stripe size="small" max-height="400">
+              <el-table-column prop="member_name" label="成員" min-width="120" />
+              <el-table-column label="單曲" min-width="70">
+                <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
+              </el-table-column>
+              <el-table-column prop="event_date" label="日期" min-width="100" />
+              <el-table-column label="抽次" min-width="70">
+                <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
+              </el-table-column>
+              <el-table-column label="應募" min-width="70" align="right">
+                <template #default="{ row }">{{ Math.round(row.applied_count / 3) }} 口</template>
+              </el-table-column>
+              <el-table-column label="結果" min-width="65" align="center">
+                <template #default="{ row }">
+                  <span :class="row.won_count > 0 ? 'tag-won' : 'tag-lost'">{{ row.won_count > 0 ? '中選' : '落選' }}</span>
+                </template>
+              </el-table-column>
             </el-table>
 
             <!-- 個握花費 -->
@@ -165,7 +186,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, previewUserRecords, previewUserFullRecords, previewUserPurchases, getAdminScrapeLogs, normalizeMemberNames } from '../api/index'
+import { getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, deleteUserSignEvents, previewUserRecords, previewUserFullRecords, previewUserPurchases, previewUserSignEvents, getAdminScrapeLogs, normalizeMemberNames } from '../api/index'
 
 const openSections = ref(['delete', 'fix', 'logs'])
 const normLoading = ref(false)
@@ -235,9 +256,10 @@ async function queryPreview() {
 async function loadPreviewPage() {
   const params = { ...buildDelParams(), page: previewPage.value }
   const fnMap = {
-    'records':     previewUserRecords,
+    'records':      previewUserRecords,
     'full-records': previewUserFullRecords,
-    'purchases':   previewUserPurchases,
+    'purchases':    previewUserPurchases,
+    'sign-events':  previewUserSignEvents,
   }
   const res = await fnMap[del.value.recordType](del.value.userId, params)
   previewData.value  = res.data.data  ?? []
@@ -254,7 +276,7 @@ async function loadUsers() {
 async function execDelete() {
   const user = users.value.find(u => u.id === del.value.userId)
   if (!user) return
-  const typeLabel = { records: '個握', 'full-records': '全握', purchases: '個握花費' }[del.value.recordType] ?? '個握'
+  const typeLabel = { records: '個握', 'full-records': '全握', purchases: '個握花費', 'sign-events': '簽名會' }[del.value.recordType] ?? '個握'
   try {
     await ElMessageBox.confirm(
       `確定要刪除 ${user.name}（${user.email}）的 ${typeLabel} 共 ${previewTotal.value} 筆資料？此操作無法復原。`,
@@ -263,7 +285,7 @@ async function execDelete() {
     )
   } catch { return }
   try {
-    const fnMap = { records: deleteUserRecords, 'full-records': deleteUserFullRecords, purchases: deleteUserPurchases }
+    const fnMap = { records: deleteUserRecords, 'full-records': deleteUserFullRecords, purchases: deleteUserPurchases, 'sign-events': deleteUserSignEvents }
     const res = await fnMap[del.value.recordType](del.value.userId, buildDelParams())
     ElMessage.success(`已刪除 ${res.data.deleted} 筆`)
     clearPreview()
@@ -335,4 +357,6 @@ onMounted(() => {
 .sub-text { font-size: 11px; color: #999; }
 .tag-ok    { color: #059669; font-size: 13px; }
 .tag-error { color: #dc2626; font-size: 13px; }
+.tag-won   { color: #52c41a; font-weight: bold; }
+.tag-lost  { color: #ff4d4f; font-weight: bold; }
 </style>

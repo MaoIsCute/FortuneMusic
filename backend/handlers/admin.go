@@ -158,6 +158,7 @@ type KnownTitle struct {
 	SingleName   string `json:"single_name"`
 	OrgAlbumName string `json:"org_album_name"` // 專輯用：抓取時的原始名稱（作為修正 key）
 	Source       string `json:"source"`          // correction / records / purchases
+	ReleaseDate  string `json:"release_date"`    // "YYYY-MM-DD" or ""
 }
 
 // albumKey 專輯（single_number == 0）沒有可靠編號可用，只能靠名稱本身互相區分
@@ -171,101 +172,121 @@ func GetKnownTitles(c *gin.Context) {
 		return
 	}
 
+	// titles 是主要來源（authoritative）
+	var allTitles []models.Title
+	db.DB.Find(&allTitles)
+
+	// 記錄哪些單曲/專輯已有 titles 主表資料
+	coveredSingles := map[titleKey]bool{}
+	type gNamePair struct{ Group, Name string }
+	coveredAlbumCorrected := map[gNamePair]bool{} // corrected name（records/purchases 存的名稱）
+	coveredAlbumOrg := map[gNamePair]bool{}        // org_album_name（原始抓取名稱）
+
+	result := make([]KnownTitle, 0, len(allTitles)+16)
+	for _, t := range allTitles {
+		rd := ""
+		if t.ReleaseDate != nil {
+			rd = t.ReleaseDate.Format("2006-01-02")
+		}
+		result = append(result, KnownTitle{
+			Group:        t.Group,
+			SingleNumber: t.SingleNumber,
+			SingleName:   t.SingleName,
+			OrgAlbumName: t.OrgAlbumName,
+			Source:       "correction",
+			ReleaseDate:  rd,
+		})
+		if t.SingleNumber > 0 {
+			coveredSingles[titleKey{Group: t.Group, SingleNumber: t.SingleNumber}] = true
+		} else {
+			coveredAlbumCorrected[gNamePair{t.Group, t.SingleName}] = true
+			if t.OrgAlbumName != "" {
+				coveredAlbumOrg[gNamePair{t.Group, t.OrgAlbumName}] = true
+			}
+		}
+	}
+
+	// 從 records / purchases 補充未在 titles 的單曲
 	type row struct {
 		Group        string
 		SingleNumber int
 		SingleName   string
 	}
+	singleExtra := map[titleKey]KnownTitle{}
 
-	nameMap := map[titleKey]string{}
-	sourceMap := map[titleKey]string{}
-	albumSourceMap := map[albumKey]string{}
-
-	// 專輯改名對照：corrected_name → org_album_name（供查詢用）
-	albumCorrByName := map[albumKey]string{}
-	var albumTitles []models.Title
-	db.DB.Where("single_number = 0 AND org_album_name != ''").Find(&albumTitles)
-	for _, at := range albumTitles {
-		albumCorrByName[albumKey{Group: at.Group, SingleName: at.SingleName}] = at.OrgAlbumName
-	}
-
-	collect := func(rows []row, source string) {
+	loadSingles := func(model any, source string) {
+		var rows []row
+		db.DB.Model(model).
+			Select(`"group", single_number, MAX(single_name) as single_name`).
+			Where("single_name NOT LIKE ? AND single_name != '' AND single_number > 0", "%タイトル未定%").
+			Group(`"group", single_number`).
+			Scan(&rows)
 		for _, r := range rows {
-			if r.SingleNumber == 0 {
-				ak := albumKey{Group: r.Group, SingleName: r.SingleName}
-				if _, exists := albumSourceMap[ak]; !exists {
-					albumSourceMap[ak] = source
-				}
+			key := titleKey{Group: r.Group, SingleNumber: r.SingleNumber}
+			if coveredSingles[key] {
 				continue
 			}
-			key := titleKey{Group: r.Group, SingleNumber: r.SingleNumber}
-			nameMap[key] = r.SingleName
-			sourceMap[key] = source
+			if _, exists := singleExtra[key]; !exists {
+				singleExtra[key] = KnownTitle{Group: r.Group, SingleNumber: r.SingleNumber, SingleName: r.SingleName, Source: source}
+			}
 		}
 	}
-
-	var recRows []row
-	db.DB.Model(&models.Record{}).
-		Select(`"group", single_number, single_name`).
-		Where("single_name NOT LIKE ? AND single_name != ''", "%タイトル未定%").
-		Group(`"group", single_number, single_name`).
-		Scan(&recRows)
-	collect(recRows, "records")
-
-	var purRows []row
-	db.DB.Model(&models.Purchase{}).
-		Select(`"group", single_number, single_name`).
-		Where("single_name NOT LIKE ? AND single_name != ''", "%タイトル未定%").
-		Group(`"group", single_number, single_name`).
-		Scan(&purRows)
-	collect(purRows, "purchases")
-
-	for key, name := range loadTitleMap().Singles {
-		nameMap[key] = name
-		sourceMap[key] = "correction"
+	loadSingles(&models.Record{}, "records")
+	loadSingles(&models.Purchase{}, "purchases")
+	for _, kt := range singleExtra {
+		result = append(result, kt)
 	}
 
-	result := make([]KnownTitle, 0, len(nameMap)+len(albumSourceMap))
-	for key, name := range nameMap {
-		result = append(result, KnownTitle{
-			Group:        key.Group,
-			SingleNumber: key.SingleNumber,
-			SingleName:   name,
-			Source:       sourceMap[key],
-		})
-	}
-	for ak, source := range albumSourceMap {
-		orgAlbumName := ""
-		if orgName, ok := albumCorrByName[ak]; ok {
-			orgAlbumName = orgName
-			source = "correction"
-		}
-		result = append(result, KnownTitle{
-			Group:        ak.Group,
-			SingleNumber: 0,
-			SingleName:   ak.SingleName,
-			OrgAlbumName: orgAlbumName,
-			Source:       source,
-		})
-	}
-	// 預先登記但尚未出現在任何記錄裡的專輯修正
-	for _, at := range albumTitles {
-		ak := albumKey{Group: at.Group, SingleName: at.SingleName}
-		if _, exists := albumSourceMap[ak]; !exists {
-			result = append(result, KnownTitle{
-				Group:        at.Group,
-				SingleNumber: 0,
-				SingleName:   at.SingleName,
-				OrgAlbumName: at.OrgAlbumName,
-				Source:       "correction",
-			})
+	// 從 records / purchases 補充未在 titles 的專輯
+	albumExtra := map[albumKey]KnownTitle{}
+
+	loadAlbums := func(model any, source string) {
+		var rows []row
+		db.DB.Model(model).
+			Select(`"group", single_name`).
+			Where("single_name NOT LIKE ? AND single_name != '' AND single_number = 0", "%タイトル未定%").
+			Group(`"group", single_name`).
+			Scan(&rows)
+		for _, r := range rows {
+			ng := gNamePair{r.Group, r.SingleName}
+			if coveredAlbumCorrected[ng] || coveredAlbumOrg[ng] {
+				continue
+			}
+			ak := albumKey{Group: r.Group, SingleName: r.SingleName}
+			if _, exists := albumExtra[ak]; !exists {
+				albumExtra[ak] = KnownTitle{Group: r.Group, SingleNumber: 0, SingleName: r.SingleName, Source: source}
+			}
 		}
 	}
+	loadAlbums(&models.Record{}, "records")
+	loadAlbums(&models.Purchase{}, "purchases")
+	for _, kt := range albumExtra {
+		result = append(result, kt)
+	}
+
+	groupOrder := map[string]int{"nogizaka46": 0, "sakurazaka46": 1, "hinatazaka46": 2}
 	sort.Slice(result, func(i, j int) bool {
-		if result[i].Group != result[j].Group {
-			return result[i].Group < result[j].Group
+		gi, gj := groupOrder[result[i].Group], groupOrder[result[j].Group]
+		if gi != gj {
+			return gi < gj
+		}
+		ri, rj := result[i].ReleaseDate, result[j].ReleaseDate
+		if ri != rj {
+			if ri == "" {
+				return false
+			}
+			if rj == "" {
+				return true
+			}
+			return ri < rj
 		}
 		if result[i].SingleNumber != result[j].SingleNumber {
+			if result[i].SingleNumber == 0 {
+				return false
+			}
+			if result[j].SingleNumber == 0 {
+				return true
+			}
 			return result[i].SingleNumber < result[j].SingleNumber
 		}
 		return result[i].SingleName < result[j].SingleName
@@ -380,6 +401,29 @@ func DeleteUserFullRecords(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
 }
 
+func PreviewUserSignEvents(c *gin.Context) {
+	if !checkAdmin(c) { return }
+	targetID, ok := parseAdminTarget(c)
+	if !ok { return }
+	page, pageSize := 1, 50
+	fmt.Sscan(c.DefaultQuery("page", "1"), &page)
+	q := applyDeleteFilters(db.DB.Model(&models.SignEvent{}).Where("user_id = ?", targetID), c)
+	var total int64
+	q.Count(&total)
+	var rows []models.SignEvent
+	q.Order("event_date DESC, member_name ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&rows)
+	c.JSON(http.StatusOK, gin.H{"data": rows, "total": total})
+}
+
+func DeleteUserSignEvents(c *gin.Context) {
+	if !checkAdmin(c) { return }
+	targetID, ok := parseAdminTarget(c)
+	if !ok { return }
+	q := applyDeleteFilters(db.DB.Where("user_id = ?", targetID), c)
+	deleted := q.Delete(&models.SignEvent{}).RowsAffected
+	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
+}
+
 func GetAdminSignEvents(c *gin.Context) {
 	if !checkAdmin(c) {
 		return
@@ -462,6 +506,7 @@ func FixSingleTitle(c *gin.Context) {
 		SingleNumber int    `json:"single_number"`
 		SingleName   string `json:"single_name" binding:"required"`
 		OrgAlbumName string `json:"org_album_name"` // 專輯用：原始抓取名稱作為修正 key
+		ReleaseDate  string `json:"release_date"`   // "YYYY-MM-DD" or ""
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "請提供 group、single_number 與 single_name"})
@@ -472,23 +517,39 @@ func FixSingleTitle(c *gin.Context) {
 		return
 	}
 
+	var rd *time.Time
+	if req.ReleaseDate != "" {
+		if t, err := time.Parse("2006-01-02", req.ReleaseDate); err == nil {
+			rd = &t
+		}
+	}
+
+	// upsertTitle 以 (group, single_number, org_album_name) 為 key，若存在則更新，否則建立
+	upsertTitle := func(group string, singleNumber int, orgAlbumName, singleName string, releaseDate *time.Time) {
+		var t models.Title
+		if db.DB.Where(`"group" = ? AND single_number = ? AND org_album_name = ?`, group, singleNumber, orgAlbumName).
+			First(&t).Error != nil {
+			db.DB.Create(&models.Title{
+				Group: group, SingleNumber: singleNumber, OrgAlbumName: orgAlbumName,
+				SingleName: singleName, ReleaseDate: releaseDate,
+			})
+		} else {
+			db.DB.Model(&t).Updates(map[string]interface{}{"single_name": singleName, "release_date": releaseDate})
+		}
+	}
+
 	var recAffected, purAffected int64
 
 	if req.SingleNumber != 0 {
-		// 單曲：任何跟新名稱不一樣的都更新
 		recAffected = db.DB.Model(&models.Record{}).
 			Where(`"group" = ? AND single_number = ? AND single_name != ?`, req.Group, req.SingleNumber, req.SingleName).
 			Update("single_name", req.SingleName).RowsAffected
 		purAffected = db.DB.Model(&models.Purchase{}).
 			Where(`"group" = ? AND single_number = ? AND single_name != ?`, req.Group, req.SingleNumber, req.SingleName).
 			Update("single_name", req.SingleName).RowsAffected
-		db.DB.Where(models.Title{Group: req.Group, SingleNumber: req.SingleNumber, OrgAlbumName: ""}).
-			Assign(models.Title{SingleName: req.SingleName}).
-			FirstOrCreate(&models.Title{})
+		upsertTitle(req.Group, req.SingleNumber, "", req.SingleName, rd)
 	} else {
-		// 專輯：以 org_album_name 為 key，精確匹配原始名稱的記錄
 		orgName := req.OrgAlbumName
-		// 查現有修正，取得目前 DB 裡的名稱（re-correction 情境下記錄已是上次修正後的名稱）
 		oldName := orgName
 		var existing models.Title
 		if db.DB.Where(`"group" = ? AND single_number = 0 AND org_album_name = ?`, req.Group, orgName).First(&existing).Error == nil {
@@ -500,11 +561,8 @@ func FixSingleTitle(c *gin.Context) {
 		purAffected = db.DB.Model(&models.Purchase{}).
 			Where(`"group" = ? AND single_number = 0 AND single_name = ? AND single_name != ?`, req.Group, oldName, req.SingleName).
 			Update("single_name", req.SingleName).RowsAffected
-		// 只有 org_album_name 是具體名稱（非 タイトル未定/空白）才存入 titles 作為自動套用對照
 		if orgName != "" && !strings.Contains(orgName, "タイトル未定") {
-			db.DB.Where(models.Title{Group: req.Group, SingleNumber: 0, OrgAlbumName: orgName}).
-				Assign(models.Title{SingleName: req.SingleName}).
-				FirstOrCreate(&models.Title{})
+			upsertTitle(req.Group, 0, orgName, req.SingleName, rd)
 		}
 	}
 

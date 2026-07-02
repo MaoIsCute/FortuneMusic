@@ -108,11 +108,18 @@ func PushFullRecords(c *gin.Context) {
 		}
 
 		if existing, ok := fullMap[r.OrderID]; ok {
-			if existing.AppliedCount != r.AppliedCount || existing.WonCount != r.WonCount {
-				db.DB.Model(existing).Updates(map[string]any{
-					"applied_count": r.AppliedCount,
-					"won_count":     r.WonCount,
-				})
+			changed := map[string]any{}
+			if existing.AppliedCount != r.AppliedCount {
+				changed["applied_count"] = r.AppliedCount
+			}
+			if existing.WonCount != r.WonCount {
+				changed["won_count"] = r.WonCount
+			}
+			if existing.SingleName == "" && r.SingleName != "" {
+				changed["single_name"] = r.SingleName
+			}
+			if len(changed) > 0 {
+				db.DB.Model(existing).Updates(changed)
 				updated++
 			} else {
 				skipped++
@@ -164,6 +171,38 @@ func PushFullRecords(c *gin.Context) {
 		"skipped":     skipped,
 		"message":     fmt.Sprintf("完成！新增 %d 筆，更新 %d 筆，跳過 %d 筆", newRecords, updated, skipped),
 	})
+}
+
+func GetSignEvents(c *gin.Context) {
+	userID := getUserID(c)
+
+	page, pageSize := 1, 50
+	fmt.Sscan(c.DefaultQuery("page", "1"), &page)
+	fmt.Sscan(c.DefaultQuery("page_size", "50"), &pageSize)
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	offset := (page - 1) * pageSize
+
+	query := db.DB.Model(&models.SignEvent{}).Where("user_id = ?", userID)
+	if grp := c.Query("group"); grp != "" {
+		query = query.Where("\"group\" = ?", grp)
+	}
+	if m := c.Query("member"); m != "" {
+		query = query.Where("member_name = ?", m)
+	}
+	if sn := c.Query("single_number"); sn != "" {
+		query = query.Where("single_number = ?", sn)
+	}
+
+	var total int64
+	query.Count(&total)
+
+	var rows []models.SignEvent
+	query.Order("event_date DESC, member_name ASC").
+		Offset(offset).Limit(pageSize).Find(&rows)
+
+	c.JSON(http.StatusOK, gin.H{"data": rows, "total": total})
 }
 
 func GetFullRecords(c *gin.Context) {

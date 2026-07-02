@@ -243,6 +243,7 @@ function buildSingleName(info) {
 async function init() {
   const { version } = chrome.runtime.getManifest()
   document.getElementById('versionBadge').textContent = `v${version}`
+  applyGroupConstraints()
   const data = await chrome.storage.local.get([BACKEND_KEY, TOKEN_KEY])
   if (data[BACKEND_KEY] && data[TOKEN_KEY]) showMain(data[BACKEND_KEY])
   else showSetup()
@@ -438,6 +439,7 @@ scrapeBtn.addEventListener('click', async () => {
   let totalUpdated = 0
   let page         = 1
   let errorMsg     = ''
+  let techError    = ''
 
   try {
     const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/apply_list/*' })
@@ -452,8 +454,8 @@ scrapeBtn.addEventListener('click', async () => {
         args:   [page],
       })
       const listData = listResult[0]?.result
-      if (!listData)        { errorMsg = '掃描失敗，無法取得結果'; break }
-      if (listData.error)   { errorMsg = listData.error;           break }
+      if (!listData)        { errorMsg = '掃描失敗，請確認申請列表頁面是否正常顯示'; techError = '掃描失敗：executeScript 回傳 null'; break }
+      if (listData.error)   { errorMsg = techError = listData.error; break }
       if (!listData.hasMore) break
 
       const { orders } = listData
@@ -464,7 +466,7 @@ scrapeBtn.addEventListener('click', async () => {
         body:    JSON.stringify({ scrape_token: scrapeToken, order_ids: orders.map(o => o.id) }),
       })
       const checkJson = await checkRes.json()
-      if (!checkRes.ok) { errorMsg = checkJson.error || '查詢失敗'; break }
+      if (!checkRes.ok) { errorMsg = '查詢訂單時發生錯誤，請稍後再試'; techError = `check-orders 失敗：HTTP ${checkRes.status}，${checkJson.error || ''}`.trim(); break }
 
       const newSet      = new Set(checkJson.new_order_ids)
       const existingSet = new Set(checkJson.existing_order_ids)
@@ -485,7 +487,7 @@ scrapeBtn.addEventListener('click', async () => {
             body:    JSON.stringify({ scrape_token: scrapeToken, records: detailData.records }),
           })
           const pushJson = await pushRes.json()
-          if (!pushRes.ok) { errorMsg = pushJson.error || '上傳失敗'; break }
+          if (!pushRes.ok) { errorMsg = '上傳紀錄時發生錯誤，請稍後再試'; techError = `push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
           totalNew     += pushJson.new_records ?? 0
           totalSkipped += pushJson.skipped     ?? 0
         }
@@ -520,11 +522,11 @@ scrapeBtn.addEventListener('click', async () => {
 
     const elapsed = stopTimer(); hideProgress()
     addLogEntry('個握抽選', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
-    await pushScrapeLog(backendUrl, scrapeToken, '個握抽選', totalNew, totalSkipped, errorMsg, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '個握抽選', totalNew, totalSkipped, techError || errorMsg, elapsed)
     if (!errorMsg && !isStopping) setWaitingMode(false)
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('個握抽選', totalNew, totalSkipped, e.message, false, elapsed)
+    addLogEntry('個握抽選', totalNew, totalSkipped, '抓取過程發生未預期錯誤，請稍後再試', false, elapsed)
     await pushScrapeLog(backendUrl, scrapeToken, '個握抽選', totalNew, totalSkipped, e.message, elapsed)
   } finally {
     scrapeBtn.disabled    = false
@@ -602,6 +604,27 @@ function parseFullApiResults(results, singleNum, group) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const FORTUNE_USER_ID_KEY = 'fortuneUserId'
+
+const GROUP_MIN_SINGLE  = { nogizaka46: 25 }
+const GROUP_DEFAULT_END = { nogizaka46: 42 }
+const fullGroupHintEl   = document.getElementById('fullGroupHint')
+
+function applyGroupConstraints() {
+  const group = fullGroupEl.value
+  const min   = GROUP_MIN_SINGLE[group] ?? 1
+  fullStartEl.min = min
+  fullEndEl.min   = min
+  if (min > 1) {
+    if (!fullStartEl.value || parseInt(fullStartEl.value) < min) fullStartEl.value = min
+    if (fullEndEl.value    && parseInt(fullEndEl.value)   < min) fullEndEl.value   = min
+    if (!fullEndEl.value && GROUP_DEFAULT_END[group])            fullEndEl.value   = GROUP_DEFAULT_END[group]
+    fullGroupHintEl.style.display = 'block'
+  } else {
+    fullGroupHintEl.style.display = 'none'
+  }
+}
+
+fullGroupEl.addEventListener('change', applyGroupConstraints)
 
 function setFullWaitingMode(on) {
   fullSyncBtn.style.display   = on ? 'none'  : 'block'
@@ -696,6 +719,11 @@ fullScrapeBtn.addEventListener('click', async () => {
   const startNum = parseInt(fullStartEl.value) || 1
   const endNum   = parseInt(fullEndEl.value)   || 0
 
+  if (endNum > 0 && endNum < startNum) {
+    showResult('error', `結束單（${endNum}）不能小於起始單（${startNum}）`)
+    return
+  }
+
   fullScrapeBtn.disabled    = true
   fullScrapeBtn.textContent = '抓取中...'
   isStopping = false
@@ -705,7 +733,7 @@ fullScrapeBtn.addEventListener('click', async () => {
   let totalNew = 0, totalSkipped = 0, emptyStreak = 0
   const MAX_EMPTY    = 3
   const totalSingles = endNum > 0 ? endNum - startNum + 1 : 0
-  let errorMsg = ''
+  let errorMsg = '', techError = ''
 
   try {
     for (let n = startNum; ; n++) {
@@ -737,17 +765,19 @@ fullScrapeBtn.addEventListener('click', async () => {
         })
         apiResult = execResult[0]?.result
       } catch (e) {
-        errorMsg = `腳本執行錯誤：${e.message}`
+        errorMsg = '全握腳本執行失敗，請重新整理頁面後再試'
+        techError = `腳本執行錯誤：${e.message}`
         break
       }
 
       if (!apiResult || apiResult.status === 0) {
-        errorMsg = `網路錯誤：${apiResult?.body ?? '未知'}`
+        errorMsg = '無法連線至全握服務，請確認網路狀態'
+        techError = `網路錯誤：${apiResult?.body ?? '未知'}`
         break
       }
       if (apiResult.status === 401) {
         await chrome.storage.local.remove(FORTUNE_USER_ID_KEY)
-        errorMsg = '登入已過期，請重新點「全握同步」'
+        errorMsg = techError = '登入已過期，請重新點「全握同步」'
         break
       }
       if (apiResult.status === 500) {
@@ -758,17 +788,19 @@ fullScrapeBtn.addEventListener('click', async () => {
           if (endNum === 0 && emptyStreak >= MAX_EMPTY) break
           continue
         }
-        errorMsg = `API 錯誤：500（${artistEvent}）\n${apiResult.body.slice(0, 200)}`
+        errorMsg = `全握服務暫時無法使用（${artistEvent}），請稍後再試`
+        techError = `API 錯誤：500（${artistEvent}）\n${apiResult.body.slice(0, 200)}`
         break
       }
       if (apiResult.status !== 200) {
-        errorMsg = `API 錯誤：${apiResult.status}（${artistEvent}）\n${apiResult.body.slice(0, 200)}`
+        errorMsg = `全握服務回應異常（${artistEvent}），請稍後再試`
+        techError = `API 錯誤：${apiResult.status}（${artistEvent}）\n${apiResult.body.slice(0, 200)}`
         break
       }
 
       let data
-      try { data = JSON.parse(apiResult.body) } catch { errorMsg = 'JSON 解析失敗'; break }
-      if (data.error) { errorMsg = data.message || 'API 錯誤'; break }
+      try { data = JSON.parse(apiResult.body) } catch { errorMsg = '全握資料格式異常，請稍後再試'; techError = 'JSON 解析失敗'; break }
+      if (data.error) { errorMsg = '全握 API 回傳錯誤，請稍後再試'; techError = data.message || 'API 錯誤'; break }
 
       const results = data.results || []
       if (results.length === 0) {
@@ -786,7 +818,7 @@ fullScrapeBtn.addEventListener('click', async () => {
           body:    JSON.stringify({ scrape_token: scrapeToken, records }),
         })
         const pushJson = await pushRes.json()
-        if (!pushRes.ok) { errorMsg = pushJson.error || '上傳失敗'; break }
+        if (!pushRes.ok) { errorMsg = '上傳紀錄時發生錯誤，請稍後再試'; techError = `full/push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
         totalNew     += pushJson.new_records ?? 0
         totalSkipped += pushJson.skipped     ?? 0
       }
@@ -794,11 +826,11 @@ fullScrapeBtn.addEventListener('click', async () => {
 
     const elapsed = stopTimer(); hideProgress()
     addLogEntry('全握', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
-    await pushScrapeLog(backendUrl, scrapeToken, '全握', totalNew, totalSkipped, errorMsg, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '全握', totalNew, totalSkipped, techError || errorMsg, elapsed)
     if (!errorMsg && !isStopping) setFullWaitingMode(false)
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('全握', totalNew, totalSkipped, e.message, false, elapsed)
+    addLogEntry('全握', totalNew, totalSkipped, '抓取過程發生未預期錯誤，請稍後再試', false, elapsed)
     await pushScrapeLog(backendUrl, scrapeToken, '全握', totalNew, totalSkipped, e.message, elapsed)
   } finally {
     fullScrapeBtn.disabled    = false
@@ -1048,7 +1080,7 @@ purchaseScrapeBtn.addEventListener('click', async () => {
   showStopBtn(true)
   startTimer()
 
-  let totalNew = 0, totalSkipped = 0, page = 1, errorMsg = ''
+  let totalNew = 0, totalSkipped = 0, page = 1, errorMsg = '', techError = ''
   const allMismatches = []
 
   try {
@@ -1066,8 +1098,8 @@ purchaseScrapeBtn.addEventListener('click', async () => {
         args:   [],
       })
       const listData = listResult[0]?.result
-      if (!listData)      { errorMsg = '掃描失敗，無法取得結果'; break }
-      if (listData.error) { errorMsg = `${listData.error} | URL:${listData._url} | title:${listData._title} | body:${listData._body}`; break }
+      if (!listData)      { errorMsg = '掃描失敗，請確認購入記錄頁面是否正常顯示'; techError = '掃描失敗：executeScript 回傳 null'; break }
+      if (listData.error) { errorMsg = listData.error; techError = `${listData.error} | URL:${listData._url} | title:${listData._title} | body:${listData._body}`; break }
       if (!listData.hasMore) break
 
       allEntries.push(...listData.entries)
@@ -1098,7 +1130,8 @@ purchaseScrapeBtn.addEventListener('click', async () => {
       })
       const checkJson = await checkRes.json()
       if (!checkRes.ok) {
-        errorMsg = checkJson.error || '查詢失敗'
+        errorMsg = '查詢花費記錄時發生錯誤，請稍後再試'
+        techError = `check-entries 失敗：HTTP ${checkRes.status}，${checkJson.error || ''}`.trim()
       } else {
         const newSet     = new Set(checkJson.new_entry_ids)
         const newEntries = allEntries.filter(e => newSet.has(e.id))
@@ -1122,7 +1155,8 @@ purchaseScrapeBtn.addEventListener('click', async () => {
             })
             const pushJson = await pushRes.json()
             if (!pushRes.ok) {
-              errorMsg = pushJson.error || '上傳失敗'
+              errorMsg = '上傳花費記錄時發生錯誤，請稍後再試'
+              techError = `purchases/push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim()
             } else {
               totalNew      = pushJson.new_purchases ?? 0
               totalSkipped += pushJson.skipped       ?? 0
@@ -1135,12 +1169,12 @@ purchaseScrapeBtn.addEventListener('click', async () => {
     const elapsed = stopTimer(); hideProgress()
     const warningMsg = buildMismatchWarning(allMismatches)
     addLogEntry('個握花費', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, warningMsg)
-    await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, errorMsg, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, techError || errorMsg, elapsed)
     chrome.tabs.update(tabs[0].id, { url: 'https://fortunemusic.jp/mypage/entry_list/' })
     if (!errorMsg && !isStopping) setPurchaseWaitingMode(false)
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('個握花費', totalNew, totalSkipped, e.message, false, elapsed, buildMismatchWarning(allMismatches))
+    addLogEntry('個握花費', totalNew, totalSkipped, '抓取過程發生未預期錯誤，請稍後再試', false, elapsed, buildMismatchWarning(allMismatches))
     await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, e.message, elapsed)
   } finally {
     purchaseScrapeBtn.disabled    = false
@@ -1256,7 +1290,7 @@ refetchBtn.addEventListener('click', async () => {
 
   const entries    = [...verifyMissingEntries]
   const BATCH      = 4
-  let totalNew = 0, totalSkipped = 0, errorMsg = ''
+  let totalNew = 0, totalSkipped = 0, errorMsg = '', techError = ''
 
   try {
     for (let i = 0; i < entries.length; i += BATCH) {
@@ -1279,7 +1313,7 @@ refetchBtn.addEventListener('click', async () => {
           body:    JSON.stringify({ scrape_token: scrapeToken, records: detailData.records }),
         })
         const pushJson = await pushRes.json()
-        if (!pushRes.ok) { errorMsg = pushJson.error || '上傳失敗'; break }
+        if (!pushRes.ok) { errorMsg = '上傳紀錄時發生錯誤，請稍後再試'; techError = `push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
         totalNew     += pushJson.new_records ?? 0
         totalSkipped += pushJson.skipped     ?? 0
       }
@@ -1287,7 +1321,7 @@ refetchBtn.addEventListener('click', async () => {
 
     const elapsed = stopTimer(); hideProgress()
     addLogEntry('補抓遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
-    await pushScrapeLog(backendUrl, scrapeToken, '補抓遺漏', totalNew, totalSkipped, errorMsg, elapsed)
+    await pushScrapeLog(backendUrl, scrapeToken, '補抓遺漏', totalNew, totalSkipped, techError || errorMsg, elapsed)
 
     if (!errorMsg && !isStopping) {
       verifyMissingEntries    = []
@@ -1295,7 +1329,7 @@ refetchBtn.addEventListener('click', async () => {
     }
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('補抓遺漏', totalNew, totalSkipped, e.message, false, elapsed)
+    addLogEntry('補抓遺漏', totalNew, totalSkipped, '補抓過程發生未預期錯誤，請稍後再試', false, elapsed)
     await pushScrapeLog(backendUrl, scrapeToken, '補抓遺漏', totalNew, totalSkipped, e.message, elapsed)
   } finally {
     refetchBtn.disabled     = false
@@ -1422,7 +1456,7 @@ refetchPurchaseBtn.addEventListener('click', async () => {
   startTimer()
 
   const entries = [...verifyPurchaseMissingEntries]
-  let totalNew = 0, totalSkipped = 0, errorMsg = ''
+  let totalNew = 0, totalSkipped = 0, errorMsg = '', techError = ''
   const allMismatches = []
 
   try {
@@ -1446,7 +1480,7 @@ refetchPurchaseBtn.addEventListener('click', async () => {
           body:    JSON.stringify({ scrape_token: scrapeToken, purchases: detailData.purchases }),
         })
         const pushJson = await pushRes.json()
-        if (!pushRes.ok) { errorMsg = pushJson.error || '上傳失敗'; break }
+        if (!pushRes.ok) { errorMsg = '上傳花費記錄時發生錯誤，請稍後再試'; techError = `purchases/push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
         totalNew     += pushJson.new_purchases ?? 0
         totalSkipped += pushJson.skipped       ?? 0
       }
@@ -1456,7 +1490,7 @@ refetchPurchaseBtn.addEventListener('click', async () => {
 
     const elapsed = stopTimer(); hideProgress()
     addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, buildMismatchWarning(allMismatches))
-    await pushScrapeLog(backendUrl, scrapeToken, '補抓個握花費遺漏', totalNew, totalSkipped, errorMsg)
+    await pushScrapeLog(backendUrl, scrapeToken, '補抓個握花費遺漏', totalNew, totalSkipped, techError || errorMsg)
 
     if (!errorMsg && !isStopping) {
       verifyPurchaseMissingEntries     = []
@@ -1464,7 +1498,7 @@ refetchPurchaseBtn.addEventListener('click', async () => {
     }
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, e.message, false, elapsed, buildMismatchWarning(allMismatches))
+    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, '補抓過程發生未預期錯誤，請稍後再試', false, elapsed, buildMismatchWarning(allMismatches))
     await pushScrapeLog(backendUrl, scrapeToken, '補抓個握花費遺漏', totalNew, totalSkipped, e.message)
   } finally {
     refetchPurchaseBtn.disabled    = false
