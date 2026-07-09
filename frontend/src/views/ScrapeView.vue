@@ -1,6 +1,10 @@
 <template>
   <div class="page">
     <h1 class="page-title">同步工具設定</h1>
+    <div v-if="outdated" class="update-banner">
+      ⚠️ 你的同步工具版本較舊（v{{ installedVersion }}，最新版 v{{ latestVersion }}），建議重新下載安裝最新版。
+      <a href="https://github.com/MaoIsCute/FortuneMusic/raw/main/FTExtension.zip" target="_blank">立即更新 →</a>
+    </div>
     <!-- 連結前 -->
     <div v-if="statusType !== 'success'" class="setup-card">
       <p class="desc">點擊下方按鈕，自動將你的帳號與同步工具連結，完成一鍵設定。</p>
@@ -40,8 +44,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { getExtensionVersion } from '../utils/extension'
 
 const copied = ref(false)
 function copy() {
@@ -57,6 +62,27 @@ const router = useRouter()
 const loading   = ref(false)
 const statusMsg = ref('')
 const statusType = ref('')
+
+// 已安裝的擴充功能版本落後 status.json 記錄的最新版本時，提醒使用者更新
+const installedVersion = ref(null)
+const latestVersion    = ref(null)
+const outdated = computed(() =>
+  installedVersion.value && latestVersion.value && parseFloat(installedVersion.value) < parseFloat(latestVersion.value)
+)
+
+const STATUS_URL = import.meta.env.DEV
+  ? '/status.json'
+  : 'https://raw.githubusercontent.com/MaoIsCute/FortuneMusic/main/status.json'
+
+onMounted(async () => {
+  installedVersion.value = await getExtensionVersion()
+  if (!installedVersion.value) return
+  try {
+    const res = await fetch(STATUS_URL + '?t=' + Date.now())
+    const data = await res.json()
+    latestVersion.value = data.latest_extension_version || null
+  } catch {}
+})
 
 async function authorize() {
   loading.value   = true
@@ -98,6 +124,19 @@ async function authorize() {
 </script>
 
 <style scoped>
+.update-banner {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  color: #92400e;
+  max-width: 480px;
+  margin-bottom: 20px;
+}
+.update-banner a { color: var(--color-primary); font-weight: 600; margin-left: 4px; }
+html.dark .update-banner { background: #451a03; border-color: #78350f; color: #fde68a; }
+
 .setup-card {
   background: white;
   border-radius: 12px;

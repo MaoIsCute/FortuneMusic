@@ -6,7 +6,7 @@ chrome.sidePanel
 // 接受來自 web app 的訊息
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
   if (message.type === 'PING') {
-    sendResponse({ pong: true })
+    sendResponse({ pong: true, version: chrome.runtime.getManifest().version })
     return
   }
   if (message.type !== 'FORTUNE_SETUP') return

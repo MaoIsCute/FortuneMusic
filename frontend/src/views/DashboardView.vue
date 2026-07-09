@@ -168,7 +168,9 @@
                 <el-table-column label="團體" min-width="70">
                   <template #default="{ row }"><span :style="{ color: GROUP_COLORS[row.group] }">{{ groupLabel(row.group) }}</span></template>
                 </el-table-column>
-                <el-table-column prop="member_name" label="成員" min-width="100" sortable />
+                <el-table-column label="成員" min-width="100" sortable sort-by="member_name">
+                  <template #default="{ row }"><span :style="{ color: GROUP_COLORS[row.group], fontWeight: 500 }">{{ row.member_name }}</span></template>
+                </el-table-column>
                 <el-table-column prop="total_applied" label="應募" width="90" sortable />
                 <el-table-column prop="total_won" label="中選" width="90" sortable />
                 <el-table-column label="中選率" width="100" sortable :sort-by="row => row.win_rate">
@@ -182,7 +184,7 @@
                   <template #default="{ row }"><span :style="{ color: GROUP_COLORS[row.group] }">{{ groupLabel(row.group) }}</span></template>
                 </el-table-column>
                 <el-table-column label="單曲" min-width="220">
-                  <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
+                  <template #default="{ row }"><span :style="{ color: GROUP_COLORS[row.group] }">{{ formatSingle(row.single_name) }}</span></template>
                 </el-table-column>
                 <el-table-column prop="total_applied" label="應募" width="90" sortable />
                 <el-table-column prop="total_won" label="中選" width="90" sortable />
@@ -1346,6 +1348,7 @@ html.dark .qs-sub   { color: #9aa3b5; }
 .chart-range-btns {
   display: flex;
   gap: 6px;
+  margin-bottom: 14px;
 }
 .range-btn {
   padding: 3px 12px;

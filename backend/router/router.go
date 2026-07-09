@@ -33,15 +33,19 @@ func Setup(cfg *config.Config) *gin.Engine {
 	r.POST("/auth/token", handlers.ExchangeToken)
 	r.POST("/auth/refresh", handlers.RefreshJWT(cfg))
 
-	// 供瀏覽器擴充功能使用（以 scrape_token 驗證，不需 JWT）
-	r.POST("/scrape", handlers.PublicScrape)
-	r.POST("/scrape/push", handlers.PushRecords)
-	r.POST("/scrape/check-orders", handlers.CheckOrders)
-	r.POST("/scrape/update-titles", handlers.UpdateTitles)
-	r.POST("/scrape/full/push", handlers.PushFullRecords)
-	r.POST("/scrape/check-entries", handlers.CheckEntries)
-	r.POST("/scrape/purchases/push", handlers.PushPurchases)
-	r.POST("/scrape/log", handlers.PushScrapeLog)
+	// 供瀏覽器擴充功能使用（以 scrape_token 驗證，不需 JWT），額外要求 X-Extension-Version
+	// header 達到最低版本才放行（見 middleware.ExtensionVersionRequired）
+	scrape := r.Group("/scrape", middleware.ExtensionVersionRequired())
+	{
+		scrape.POST("", handlers.PublicScrape)
+		scrape.POST("/push", handlers.PushRecords)
+		scrape.POST("/check-orders", handlers.CheckOrders)
+		scrape.POST("/update-titles", handlers.UpdateTitles)
+		scrape.POST("/full/push", handlers.PushFullRecords)
+		scrape.POST("/check-entries", handlers.CheckEntries)
+		scrape.POST("/purchases/push", handlers.PushPurchases)
+		scrape.POST("/log", handlers.PushScrapeLog)
+	}
 
 	api := r.Group("/api", middleware.AuthRequired(cfg), middleware.ImpersonateMiddleware(cfg.AdminEmail))
 	{

@@ -42,6 +42,27 @@ function normalizeSession(s) {
   return s.startsWith('第') ? s : '第' + s
 }
 
+// 所有打後端 /scrape/* 的請求都要經過這裡，統一帶上擴充功能版本號，
+// 後端會比對最低版本、版本太舊直接擋下（HTTP 426），避免舊版持續送進已知有問題的資料
+function backendFetch(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      'X-Extension-Version': chrome.runtime.getManifest().version,
+    },
+  })
+}
+
+// 後端擋下版本過舊的請求時會回傳 { error: 'extension_outdated', message }，
+// 這種情況要顯示比一般同步失敗更明確的提示，而不是套用呼叫端傳進來的通用錯誤訊息
+function fetchErrorMessage(json, fallback) {
+  if (json?.error === 'extension_outdated') {
+    return json.message || '同步工具版本過舊，請重新下載安裝最新版後再試'
+  }
+  return fallback
+}
+
 // ─── 階段一：掃描申請列表，不進 detail page ──────────────────────────────────
 // 回傳 { orders: [{id, info}], hasMore } 或 { error }
 async function scrapeListPage(pageNum) {
@@ -359,7 +380,7 @@ function addLogEntry(type, newCount, skipCount, errorMsg, stopped = false, elaps
 async function pushScrapeLog(backendUrl, scrapeToken, type, newCount, skipCount, error, durationSec = 0) {
   if (!backendUrl || !scrapeToken) return
   try {
-    await fetch(backendUrl + '/scrape/log', {
+    await backendFetch(backendUrl + '/scrape/log', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scrape_token: scrapeToken, type, new_count: newCount, skip_count: skipCount, error: error || '', duration_sec: durationSec }),
@@ -467,13 +488,13 @@ scrapeBtn.addEventListener('click', async () => {
 
       const { orders } = listData
 
-      const checkRes = await fetch(`${backendUrl}/scrape/check-orders`, {
+      const checkRes = await backendFetch(`${backendUrl}/scrape/check-orders`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ scrape_token: scrapeToken, order_ids: orders.map(o => o.id) }),
       })
       const checkJson = await checkRes.json()
-      if (!checkRes.ok) { errorMsg = '查詢訂單時發生錯誤，請稍後再試'; techError = `check-orders 失敗：HTTP ${checkRes.status}，${checkJson.error || ''}`.trim(); break }
+      if (!checkRes.ok) { errorMsg = fetchErrorMessage(checkJson, '查詢訂單時發生錯誤，請稍後再試'); techError = `check-orders 失敗：HTTP ${checkRes.status}，${checkJson.error || ''}`.trim(); break }
 
       const newSet      = new Set(checkJson.new_order_ids)
       const existingSet = new Set(checkJson.existing_order_ids)
@@ -488,13 +509,13 @@ scrapeBtn.addEventListener('click', async () => {
         })
         const detailData = detailResult[0]?.result
         if (detailData?.records?.length > 0) {
-          const pushRes = await fetch(`${backendUrl}/scrape/push`, {
+          const pushRes = await backendFetch(`${backendUrl}/scrape/push`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ scrape_token: scrapeToken, records: detailData.records }),
           })
           const pushJson = await pushRes.json()
-          if (!pushRes.ok) { errorMsg = '上傳紀錄時發生錯誤，請稍後再試'; techError = `push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
+          if (!pushRes.ok) { errorMsg = fetchErrorMessage(pushJson, '上傳紀錄時發生錯誤，請稍後再試'); techError = `push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
           totalNew     += pushJson.new_records ?? 0
           totalSkipped += pushJson.skipped     ?? 0
         }
@@ -515,7 +536,7 @@ scrapeBtn.addEventListener('click', async () => {
         .filter(Boolean)
 
       if (titleUpdates.length > 0) {
-        const updateRes = await fetch(`${backendUrl}/scrape/update-titles`, {
+        const updateRes = await backendFetch(`${backendUrl}/scrape/update-titles`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ scrape_token: scrapeToken, updates: titleUpdates }),
@@ -820,13 +841,13 @@ fullScrapeBtn.addEventListener('click', async () => {
 
       const records = parseFullApiResults(results, n, group)
       if (records.length > 0) {
-        const pushRes = await fetch(`${backendUrl}/scrape/full/push`, {
+        const pushRes = await backendFetch(`${backendUrl}/scrape/full/push`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ scrape_token: scrapeToken, records }),
         })
         const pushJson = await pushRes.json()
-        if (!pushRes.ok) { errorMsg = '上傳紀錄時發生錯誤，請稍後再試'; techError = `full/push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
+        if (!pushRes.ok) { errorMsg = fetchErrorMessage(pushJson, '上傳紀錄時發生錯誤，請稍後再試'); techError = `full/push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
         totalNew     += pushJson.new_records ?? 0
         totalSkipped += pushJson.skipped     ?? 0
       }
@@ -1131,14 +1152,14 @@ purchaseScrapeBtn.addEventListener('click', async () => {
     // 階段二：查重
     if (!errorMsg && !isStopping && allEntries.length > 0) {
       updateProgress('個握花費', 0, 0, `比對 ${allEntries.length} 筆...`)
-      const checkRes = await fetch(`${backendUrl}/scrape/check-entries`, {
+      const checkRes = await backendFetch(`${backendUrl}/scrape/check-entries`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ scrape_token: scrapeToken, entry_ids: allEntries.map(e => e.id) }),
       })
       const checkJson = await checkRes.json()
       if (!checkRes.ok) {
-        errorMsg = '查詢花費記錄時發生錯誤，請稍後再試'
+        errorMsg = fetchErrorMessage(checkJson, '查詢花費記錄時發生錯誤，請稍後再試')
         techError = `check-entries 失敗：HTTP ${checkRes.status}，${checkJson.error || ''}`.trim()
       } else {
         const newSet     = new Set(checkJson.new_entry_ids)
@@ -1156,14 +1177,14 @@ purchaseScrapeBtn.addEventListener('click', async () => {
           const detailData = detailResult[0]?.result
           if (detailData?.mismatches?.length > 0) allMismatches.push(...detailData.mismatches)
           if (detailData?.purchases?.length > 0) {
-            const pushRes = await fetch(`${backendUrl}/scrape/purchases/push`, {
+            const pushRes = await backendFetch(`${backendUrl}/scrape/purchases/push`, {
               method:  'POST',
               headers: { 'Content-Type': 'application/json' },
               body:    JSON.stringify({ scrape_token: scrapeToken, purchases: detailData.purchases }),
             })
             const pushJson = await pushRes.json()
             if (!pushRes.ok) {
-              errorMsg = '上傳花費記錄時發生錯誤，請稍後再試'
+              errorMsg = fetchErrorMessage(pushJson, '上傳花費記錄時發生錯誤，請稍後再試')
               techError = `purchases/push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim()
             } else {
               totalNew      = pushJson.new_purchases ?? 0
@@ -1235,7 +1256,7 @@ verifyBtn.addEventListener('click', async () => {
     if (!errorMsg && !isStopping) {
       updateProgress('驗證完整性', 0, 0, `比對 ${allOrders.length} 筆訂單...`)
 
-      const checkRes = await fetch(`${backendUrl}/scrape/check-orders`, {
+      const checkRes = await backendFetch(`${backendUrl}/scrape/check-orders`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ scrape_token: scrapeToken, order_ids: allOrders.map(o => o.id) }),
@@ -1243,7 +1264,7 @@ verifyBtn.addEventListener('click', async () => {
       const checkJson = await checkRes.json()
 
       if (!checkRes.ok) {
-        errorMsg = checkJson.error || '比對失敗'
+        errorMsg = fetchErrorMessage(checkJson, checkJson.error || '比對失敗')
       } else {
         const newSet = new Set(checkJson.new_order_ids || [])
         verifyMissingEntries = allOrders.filter(o => newSet.has(o.id))
@@ -1315,13 +1336,13 @@ refetchBtn.addEventListener('click', async () => {
       })
       const detailData = detailResult[0]?.result
       if (detailData?.records?.length > 0) {
-        const pushRes = await fetch(`${backendUrl}/scrape/push`, {
+        const pushRes = await backendFetch(`${backendUrl}/scrape/push`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ scrape_token: scrapeToken, records: detailData.records }),
         })
         const pushJson = await pushRes.json()
-        if (!pushRes.ok) { errorMsg = '上傳紀錄時發生錯誤，請稍後再試'; techError = `push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
+        if (!pushRes.ok) { errorMsg = fetchErrorMessage(pushJson, '上傳紀錄時發生錯誤，請稍後再試'); techError = `push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
         totalNew     += pushJson.new_records ?? 0
         totalSkipped += pushJson.skipped     ?? 0
       }
@@ -1407,7 +1428,7 @@ verifyPurchaseBtn.addEventListener('click', async () => {
     if (!errorMsg && !isStopping) {
       updateProgress('驗證個握花費完整性', 0, 0, `比對 ${allEntries.length} 筆記錄...`)
 
-      const checkRes = await fetch(`${backendUrl}/scrape/check-entries`, {
+      const checkRes = await backendFetch(`${backendUrl}/scrape/check-entries`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ scrape_token: scrapeToken, entry_ids: allEntries.map(e => e.id) }),
@@ -1415,7 +1436,7 @@ verifyPurchaseBtn.addEventListener('click', async () => {
       const checkJson = await checkRes.json()
 
       if (!checkRes.ok) {
-        errorMsg = checkJson.error || '比對失敗'
+        errorMsg = fetchErrorMessage(checkJson, checkJson.error || '比對失敗')
       } else {
         const newSet = new Set(checkJson.new_entry_ids || [])
         verifyPurchaseMissingEntries = allEntries.filter(e => newSet.has(e.id))
@@ -1482,13 +1503,13 @@ refetchPurchaseBtn.addEventListener('click', async () => {
       const detailData = detailResult[0]?.result
       if (detailData?.mismatches?.length > 0) allMismatches.push(...detailData.mismatches)
       if (detailData?.purchases?.length > 0) {
-        const pushRes = await fetch(`${backendUrl}/scrape/purchases/push`, {
+        const pushRes = await backendFetch(`${backendUrl}/scrape/purchases/push`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ scrape_token: scrapeToken, purchases: detailData.purchases }),
         })
         const pushJson = await pushRes.json()
-        if (!pushRes.ok) { errorMsg = '上傳花費記錄時發生錯誤，請稍後再試'; techError = `purchases/push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
+        if (!pushRes.ok) { errorMsg = fetchErrorMessage(pushJson, '上傳花費記錄時發生錯誤，請稍後再試'); techError = `purchases/push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }
         totalNew     += pushJson.new_purchases ?? 0
         totalSkipped += pushJson.skipped       ?? 0
       }

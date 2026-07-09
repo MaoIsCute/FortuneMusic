@@ -11,6 +11,18 @@
 | 資料庫 | PostgreSQL（Supabase） |
 | 驗證 | Google OAuth 2.0 + JWT（15 分鐘）+ Refresh Token（30 天） |
 
+## Git 操作規則
+
+- 不要主動執行 `git commit` 或 `git push`，只有使用者明確下「commit」「push」「提交」「推上去」之類的指令時才執行。
+- 一旦下達 commit/push 指令，請一路完成 add → commit → push，中途不要停下來逐步詢問。
+- commit message 用繁體中文，格式參考現有 commit 風格（`git log` 可查）。
+- 若這次改動有碰到 `extension/` 底下任何檔案，commit 前要重新打包 `FTExtension.zip`（直接壓縮 `extension/` 資料夾內容，檔案要在 zip 根目錄、不要多包一層 `extension` 資料夾——用 `Compress-Archive -Path extension\* -DestinationPath FTExtension.zip -Force`），否則使用者下載到的會是舊版擴充功能。
+- 版本號：commit 前若有異動，各自更新：
+  - 有改 `extension/` 檔案 → 更新 `extension/manifest.json` 的 `"version"`，**同時**更新 `status.json`（repo 根目錄 + `frontend/public/status.json`）的 `"latest_extension_version"` 為同一個版本號，否則已安裝舊版的使用者不會被提醒更新（見「已修正的問題」#97）；如果這次改動會讓後端拒絕舊版請求（例如修正資料正確性的 bug），也要一併把 `backend/middleware/extension_version.go` 的 `MinExtensionVersion` 常數提高到同一個版本號，否則舊版擴充功能還是能正常同步（見 #98）
+  - 有改 `frontend/` 檔案 → 更新 `frontend/src/components/NavBar.vue` 的 `APP_VERSION`
+  - 三者互相獨立，不需強制同步（但 `manifest.json`／`status.json` 的 `latest_extension_version`／`MinExtensionVersion` 這幾個一定要一起改成同一個數字）
+  - **版本號進位陷阱**：版本比對是用 `parseFloat`/`strconv.ParseFloat` 把版本字串當數字比較，小數點後只能到 9——如果照 +0.1 的慣例從 1.9 bump 成 "1.10"，會被解析成 1.1（比 1.9 還小！）整個比較邏輯會壞掉。小數點後到 9 之後，下一版要跳整數（1.9 → 2.0），不能繼續 +0.1。
+
 ## 專案結構
 
 ```
@@ -203,13 +215,7 @@ LoginView → GET http://localhost:8080/auth/google
 
 下載：`https://github.com/MaoIsCute/FortuneMusic/raw/main/FTExtension.zip`
 
-**重要：每次修改 `extension/` 底下任何檔案後，commit 前都要重新打包 `FTExtension.zip`**（直接壓縮 `extension/` 資料夾內容，檔案要在 zip 根目錄、不要多包一層 `extension` 資料夾——用 `Compress-Archive -Path extension\* -DestinationPath FTExtension.zip -Force`），否則使用者下載到的會是舊版擴充功能。
-
-**版本號：commit 前若有異動，各自更新：**
-- 有改 `extension/` 檔案 → 更新 `extension/manifest.json` 的 `"version"`（目前 `1.4`）
-- 有改 `frontend/` 檔案 → 更新 `frontend/src/components/NavBar.vue` 的 `APP_VERSION`（目前 `1.4`）
-
-兩者互相獨立，不需強制同步。
+**重新打包 `FTExtension.zip`、版本號更新規則見上方「## Git 操作規則」。**
 
 安裝方式：`chrome://extensions/` → 開發人員模式 → 載入未封裝項目 → 選解壓縮後的資料夾
 
@@ -538,3 +544,10 @@ ADMIN_EMAIL=...
     - **排序函式本身**：`sortMembersByGen`/`sortMembersByGroupAndGen`（`utils/members.js`）以及兩個頁面（`DashboardView.vue`/`RecordsAnalysisView.vue`）各自複製的 `rSortedMembers`/`sortedMembers` inline 排序、還有「各次應募中選率比較」折線圖 legend 的成員排序，全部把 `localeCompare('ja')` 換成新增的 `memberOrderIndex(name)`（`utils/members.js` 新增匯出，讀 `MEMBERS` 物件宣告順序建的 `name → 索引` 對照表）。因為現在 `MEMBERS` 宣告順序本身就是校對過的正確五十音順，排序時直接比索引數字，比字串比較快，也不會再排錯。
     - `sortMembersByGen`（純期別→五十音，不分團體）確認整個專案沒有任何地方呼叫，是死函式，順手刪除。
 95. 移除「成員詳細分析」（`DashboardView.vue`/`FullAnalysisView.vue` 的 `fDetailRows`/`detailRows`）排序條件裡多餘的 `a.partner.localeCompare(b.partner)` tie-break → 分組用的 `key` 本身就是 `` `${single_number}:${member_name}:${venue}` ``，已經包含 `member_name`，代表同一列（同單曲+同場地）本來就只會對應到固定的一組搭檔，不會有「同一格裡搭檔不同、需要再排序決定顯示順序」的情況，所以拿掉這個沒有意義的排序條件，只保留 `single_number` 主排序 + `venue` 次排序。這也代表 #94 提到「搭檔欄位沒排序」的已知缺口其實不需要修，原本就不需要排序。
+96. 「全員統計」個握總表的排行榜（`rByMember`/`rBySingle`）「成員」「單曲」欄位文字改成套用團體顏色（`GROUP_COLORS[row.group]`），跟「團體」欄位、其他頁面的成員/單曲文字上色慣例一致；「成員」欄位原本用 `prop="member_name"` 直接綁定，改成 `<template #default>` 自訂渲染才能包色，排序改用 `sort-by="member_name"` 維持可排序。
+97. 新增擴充功能版本過舊提醒 → 原本使用者裝了舊版擴充功能完全不會被通知，`popup.js` 雖然會在 popup 內顯示版本號但沒有比對基準。做法：`extension/background.js` 的 `PING` 訊息回應加上 `version: chrome.runtime.getManifest().version`；`status.json`（repo 根目錄 + `frontend/public/status.json` 開發環境鏡像，App.vue 維護模式本來就會 fetch 這個檔案）新增 `latest_extension_version` 欄位；`utils/extension.js` 新增 `getExtensionVersion()`（沿用 `detectExtension()` 同一套 PING 機制取得已安裝版本）；`ScrapeView.vue`（同步工具頁）進站時比對已安裝版本跟 `status.json` 的最新版本，落後就在頁面最上方顯示提醒橫幅＋更新連結。目前只做在同步工具頁，不是全站通用的橫幅，之後如果想擴大到其他頁面/更主動的提醒（例如每次進站都跳提醒）需要再擴充。之後每次 bump `extension/manifest.json` 版本號時，也要記得同步更新 `status.json` 的 `latest_extension_version`，否則這個提醒機制不會生效。擴充功能升級至 v1.9。
+98. #97 的軟性提醒升級成硬擋 → 原因是舊版擴充功能會持續送進已知有問題的資料（例如 session「第1部」/「1部」不一致那個問題），光提醒不夠，發現問題後還是要花力氣寫 migration 補救。做法：
+    - **擴充功能**：`popup.js` 原本有 9 處各自呼叫 `fetch(backendUrl + '/scrape/...')`，沒有共用封裝，新增 `backendFetch(url, options)` 統一在 header 加上 `X-Extension-Version: chrome.runtime.getManifest().version`，取代這 9 個呼叫點；另外新增 `fetchErrorMessage(json, fallback)`，後端擋下請求時會回傳 `{error: 'extension_outdated', message}`，這個情況要顯示比一般同步失敗更明確的訊息，而不是套用呼叫端原本寫死的通用錯誤文字（如「上傳紀錄時發生錯誤，請稍後再試」）。
+    - **後端**：新增 `backend/middleware/extension_version.go`，`MinExtensionVersion` 常數寫死在程式碼裡（不是環境變數——因為這個值本來就要跟 `manifest.json`/`status.json` 的版本號綁在同一個 commit 一起改，寫死比較不會漏改其中一個，也比較符合現有的 commit 流程），`ExtensionVersionRequired()` middleware 檢查 `X-Extension-Version` header，版本不足（含完全沒帶這個 header，代表是這個機制上線前的舊版）就回 HTTP 426 直接擋下。掛在 `router.go` 的 `/scrape` 路由群組上（這組路由原本是各自獨立註冊，改成 `r.Group("/scrape", middleware.ExtensionVersionRequired())` 才能統一掛 middleware）。
+    - **版本號選 2.0 而不是 1.10 的原因**：版本比對用 `strconv.ParseFloat`/`parseFloat` 直接把版本字串當數字比較，如果照原本 +0.1 的慣例從 1.9 bump 到 "1.10"，會被解析成 1.1（小於 1.9！），比較邏輯直接壞掉。所以只要版本號小數點後到達 9，下一版一定要跳整數（1.9 → 2.0），不能繼續 +0.1，這點之後 bump 版本號時要記得。
+    - 擴充功能升級至 v2.0（`background.js`/`popup.js` 都有改，一起 bump）。

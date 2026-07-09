@@ -815,6 +815,7 @@ html.dark .empty-sub   { color: #9aa3b5; }
 .chart-range-btns {
   display: flex;
   gap: 6px;
+  margin-bottom: 14px;
 }
 .range-btn {
   padding: 3px 12px;
