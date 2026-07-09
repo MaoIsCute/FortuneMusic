@@ -19,6 +19,7 @@ const routes = [
   { path: '/admin/users', name: 'AdminUsers', component: () => import('../views/AdminUsersView.vue'), meta: { admin: true } },
   { path: '/admin/maintenance', name: 'AdminMaintenance', component: () => import('../views/AdminMaintenanceView.vue'), meta: { admin: true } },
   { path: '/admin/titles', name: 'AdminTitles', component: () => import('../views/AdminTitlesView.vue'), meta: { admin: true } },
+  { path: '/admin/venues', name: 'AdminVenues', component: () => import('../views/AdminVenuesView.vue'), meta: { admin: true } },
   { path: '/admin/sign-events', name: 'AdminSignEvents', component: () => import('../views/AdminSignEventsView.vue'), meta: { admin: true } },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
 ]
@@ -28,7 +29,7 @@ const router = createRouter({
   routes,
 })
 
-const DATA_ROUTES = new Set(['Dashboard', 'Records', 'Spending'])
+const DATA_ROUTES = new Set(['Dashboard', 'Records', 'RecordsAnalysis', 'Spending'])
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()

@@ -1,13 +1,31 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 
 	"fortune-tracker/db"
 	"fortune-tracker/models"
 
 	"github.com/gin-gonic/gin"
 )
+
+// 場地→地區對照表（関東/地方）。実体場地目前只出現過這幾種，新場地上線後需要在這裡補一筆。
+var kantoVenues = []string{"幕張メッセ", "パシフィコ横浜", "東京", "東京ビッグサイト"}
+var regionalVenues = []string{"京都パルスプラザ", "ポートメッセなごや", "地方", "インテックス大阪"}
+
+func venueRegionCaseSQL() string {
+	quote := func(vs []string) string {
+		parts := make([]string, len(vs))
+		for i, v := range vs {
+			parts[i] = "'" + v + "'"
+		}
+		return strings.Join(parts, ",")
+	}
+	return fmt.Sprintf(`CASE WHEN venue IN (%s) THEN '関東' WHEN venue IN (%s) THEN '地方' ELSE 'その他' END`,
+		quote(kantoVenues), quote(regionalVenues))
+}
 
 func GetFullOverallStats(c *gin.Context) {
 	userID := getUserID(c)
@@ -56,6 +74,9 @@ func GetFullStatsByMember(c *gin.Context) {
 	if v := c.Query("venue"); v != "" {
 		query = query.Where("venue = ?", v)
 	}
+	if region := c.Query("region"); region != "" {
+		query = query.Where(venueRegionCaseSQL()+" = ?", region)
+	}
 
 	type Row struct {
 		Group        string  `json:"group"`
@@ -98,11 +119,40 @@ func GetFullDetailStats(c *gin.Context) {
 	if v := c.Query("venue"); v != "" {
 		query = query.Where("venue = ?", v)
 	}
+	if region := c.Query("region"); region != "" {
+		query = query.Where(venueRegionCaseSQL()+" = ?", region)
+	}
 
 	var rows []Row
 	query.Select("single_number, single_name, member_name, venue, session, lottery_round, SUM(applied_count) as total_applied, SUM(won_count) as total_won").
 		Group("single_number, single_name, member_name, venue, session, lottery_round").
 		Order("single_number ASC, member_name ASC, venue ASC, session ASC, lottery_round ASC").
+		Scan(&rows)
+
+	c.JSON(http.StatusOK, rows)
+}
+
+func GetFullStatsByRegion(c *gin.Context) {
+	userID := getUserID(c)
+
+	type Row struct {
+		Region       string  `json:"region"`
+		TotalApplied int     `json:"total_applied"`
+		TotalWon     int     `json:"total_won"`
+		WinRate      float64 `json:"win_rate"`
+	}
+
+	query := db.DB.Model(&models.FullRecord{}).Where("user_id = ? AND event_type = '実体'", userID)
+	if grp := c.Query("group"); grp != "" {
+		query = query.Where(`"group" = ?`, grp)
+	}
+
+	regionExpr := venueRegionCaseSQL()
+	var rows []Row
+	query.Select(regionExpr+` as region, SUM(applied_count) as total_applied, SUM(won_count) as total_won, `+
+		"ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count),0) * 100, 1) as win_rate").
+		Group(regionExpr).
+		Order("region").
 		Scan(&rows)
 
 	c.JSON(http.StatusOK, rows)

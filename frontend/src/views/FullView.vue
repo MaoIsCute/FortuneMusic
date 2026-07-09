@@ -41,7 +41,11 @@
       </div>
 
       <el-table :data="records" stripe>
-        <el-table-column prop="member_name" label="成員" width="120" />
+        <el-table-column label="成員" width="120">
+          <template #default="{ row }">
+            <span :style="{ color: GROUP_COLORS[row.group], fontWeight: 500 }">{{ row.member_name }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="event_type" label="類型" width="70" />
         <el-table-column label="場地" width="160">
           <template #default="{ row }">
@@ -116,7 +120,23 @@ async function reloadFilterLists() {
   memberStats.forEach(m => m.member_name.split('・').forEach(n => { n = n.trim(); if (n) nameGroupMap.set(n, m.group || '') }))
   memberList.value = sortMembersByGroupAndGen([...nameGroupMap.entries()].map(([name, group]) => ({ name, group })))
   venueList.value = [...new Set((statsRes.data.by_type ?? []).map(r => r.venue).filter(v => v))]
-  singleList.value = singleRes.data ?? []
+  const GROUP_ORDER = { nogizaka46: 0, sakurazaka46: 1, hinatazaka46: 2 }
+  singleList.value = (singleRes.data ?? []).sort((a, b) => {
+    const gd = (GROUP_ORDER[a.group] ?? 9) - (GROUP_ORDER[b.group] ?? 9)
+    if (gd !== 0) return gd
+    const rd_a = a.release_date || '', rd_b = b.release_date || ''
+    if (rd_a !== rd_b) {
+      if (!rd_a) return 1
+      if (!rd_b) return -1
+      return rd_a.localeCompare(rd_b)
+    }
+    if (a.single_number !== b.single_number) {
+      if (a.single_number === 0) return 1
+      if (b.single_number === 0) return -1
+      return a.single_number - b.single_number
+    }
+    return (a.single_name ?? '').localeCompare(b.single_name ?? '', 'ja')
+  })
 }
 
 async function onGroupChange() {

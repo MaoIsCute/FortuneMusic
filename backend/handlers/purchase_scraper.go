@@ -235,6 +235,7 @@ func GetPurchaseStatsBySingle(c *gin.Context) {
 }
 
 type PurchaseByMember struct {
+	Group         string `json:"group"`
 	MemberName    string `json:"member_name"`
 	TotalAmount   int64  `json:"total_amount"`
 	TotalQuantity int64  `json:"total_quantity"`
@@ -244,9 +245,9 @@ func GetPurchaseStatsByMember(c *gin.Context) {
 	userID := getUserID(c)
 	var rows []PurchaseByMember
 	db.DB.Model(&models.Purchase{}).
-		Select("member_name, SUM(subtotal) as total_amount, SUM(quantity) as total_quantity").
+		Select(`"group", member_name, SUM(subtotal) as total_amount, SUM(quantity) as total_quantity`).
 		Where("user_id = ?", userID).
-		Group("member_name").
+		Group(`"group", member_name`).
 		Order("total_amount DESC").
 		Scan(&rows)
 	c.JSON(http.StatusOK, rows)

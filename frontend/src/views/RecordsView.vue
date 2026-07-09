@@ -32,9 +32,15 @@
       </el-select>
     </div>
     <el-table :data="records" stripe>
-      <el-table-column prop="member_name" label="成員" />
+      <el-table-column label="成員">
+        <template #default="{ row }">
+          <span :style="{ color: GROUP_COLORS[row.group], fontWeight: 500 }">{{ row.member_name }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="單曲">
-        <template #default="{ row }">{{ formatSingle(row.single_name) || row.event_name }}</template>
+        <template #default="{ row }">
+          <span :style="{ color: GROUP_COLORS[row.group] }">{{ formatSingle(row.single_name) || row.event_name }}</span>
+        </template>
       </el-table-column>
       <el-table-column label="次數" width="80">
         <template #default="{ row }">{{ formatRound(row.lottery_round) }}</template>
@@ -112,17 +118,23 @@ async function reloadFilterLists() {
     if (r.single_number > 0) {
       const existing = singleMap.get(r.single_number)
       if (!existing || existing.name.includes('タイトル未定') || existing.name === '')
-        singleMap.set(r.single_number, { name: r.single_name, group: r.group, singleNumber: r.single_number })
+        singleMap.set(r.single_number, { name: r.single_name, group: r.group, singleNumber: r.single_number, releaseDate: r.release_date || '' })
     } else {
-      singleMap.set(`a:${r.single_name}`, { name: r.single_name, group: r.group, singleNumber: 0 })
+      singleMap.set(`a:${r.single_name}`, { name: r.single_name, group: r.group, singleNumber: 0, releaseDate: r.release_date || '' })
     }
   }
   const GROUP_ORDER = { nogizaka46: 0, sakurazaka46: 1, hinatazaka46: 2 }
   singleList.value = [...singleMap.values()].sort((a, b) => {
     const gd = (GROUP_ORDER[a.group] ?? 9) - (GROUP_ORDER[b.group] ?? 9)
     if (gd !== 0) return gd
+    const rd_a = a.releaseDate, rd_b = b.releaseDate
+    if (rd_a !== rd_b) {
+      if (!rd_a) return 1
+      if (!rd_b) return -1
+      return rd_a.localeCompare(rd_b)
+    }
     if (a.singleNumber !== b.singleNumber) {
-      if (a.singleNumber === 0) return 1  // 專輯排在單曲後面
+      if (a.singleNumber === 0) return 1
       if (b.singleNumber === 0) return -1
       return a.singleNumber - b.singleNumber
     }

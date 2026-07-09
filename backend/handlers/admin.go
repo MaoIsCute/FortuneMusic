@@ -73,13 +73,16 @@ func GetTitleIssues(c *gin.Context) {
 	}
 
 	// titles 主表已登記的單曲：只要跟登記值不一樣就算問題（含 タイトル未定、空白、打錯字等）。
-	// 還沒登記過的單曲（包含所有專輯，因為專輯不會寫入 titles）才退回舊版邏輯：只抓 タイトル未定/空白。
+	// 還沒登記過的單曲（包含所有專輯，因為專輯不會寫入 titles）才退回舊版邏輯：只抓 タイトル未定/空白，
+	// 但單曲（single_number > 0）額外檢查是否同一單曲號出現兩種以上「看起來正常」的不同名稱互相衝突——
+	// 這種情況兩個名稱都不是空白/タイトル未定，舊版邏輯完全偵測不到，資料本身就兜不起來，需要人工選一個正確的。
+	// 專輯不適用這個檢查：同團體多張專輯本來就共用 single_number=0，天生就會有「多個不同名稱」，那是正常現象不是衝突。
 	maps := loadTitleMap()
 
-	countMap := map[titleKey]int64{}
-	nameMap := map[titleKey]string{}
+	// 依 (group, single_number) 彙總每個不同 single_name 各自的出現次數，橫跨 records + purchases
+	nameCounts := map[titleKey]map[string]int64{}
 
-	scanIssues := func(model any) {
+	scanNames := func(model any) {
 		var rows []issueRow
 		db.DB.Model(model).
 			Select(`"group", single_number, single_name, COUNT(*) as count`).
@@ -87,23 +90,14 @@ func GetTitleIssues(c *gin.Context) {
 			Scan(&rows)
 		for _, r := range rows {
 			key := titleKey{Group: r.Group, SingleNumber: r.SingleNumber}
-			var isIssue bool
-			if registered, ok := maps.Singles[key]; ok {
-				isIssue = r.SingleName != registered
-			} else {
-				isIssue = r.SingleName == "" || strings.Contains(r.SingleName, "タイトル未定")
+			if nameCounts[key] == nil {
+				nameCounts[key] = map[string]int64{}
 			}
-			if !isIssue {
-				continue
-			}
-			countMap[key] += r.Count
-			if _, exists := nameMap[key]; !exists {
-				nameMap[key] = r.SingleName
-			}
+			nameCounts[key][r.SingleName] += r.Count
 		}
 	}
-	scanIssues(&models.Record{})
-	scanIssues(&models.Purchase{})
+	scanNames(&models.Record{})
+	scanNames(&models.Purchase{})
 
 	// 建議名稱：先查 titles，再從現有正確記錄推測
 	type correctRow struct {
@@ -128,15 +122,51 @@ func GetTitleIssues(c *gin.Context) {
 		}
 	}
 
-	result := make([]TitleIssue, 0, len(countMap))
-	for key, count := range countMap {
-		result = append(result, TitleIssue{
-			Group:         key.Group,
-			SingleNumber:  key.SingleNumber,
-			CurrentName:   nameMap[key],
-			SuggestedName: suggestMap[key],
-			Count:         count,
-		})
+	isRealName := func(name string) bool {
+		return name != "" && !strings.Contains(name, "タイトル未定")
+	}
+
+	result := make([]TitleIssue, 0, len(nameCounts))
+	for key, names := range nameCounts {
+		if registered, ok := maps.Singles[key]; ok {
+			for name, count := range names {
+				if name != registered {
+					result = append(result, TitleIssue{
+						Group: key.Group, SingleNumber: key.SingleNumber,
+						CurrentName: name, SuggestedName: registered, Count: count,
+					})
+				}
+			}
+			continue
+		}
+
+		if key.SingleNumber > 0 {
+			realNameCount := 0
+			for name := range names {
+				if isRealName(name) {
+					realNameCount++
+				}
+			}
+			if realNameCount >= 2 {
+				// 同一單曲號出現多種互相衝突的正常名稱，全部列出讓管理者選擇正確版本
+				for name, count := range names {
+					result = append(result, TitleIssue{
+						Group: key.Group, SingleNumber: key.SingleNumber,
+						CurrentName: name, SuggestedName: "", Count: count,
+					})
+				}
+				continue
+			}
+		}
+
+		for name, count := range names {
+			if !isRealName(name) {
+				result = append(result, TitleIssue{
+					Group: key.Group, SingleNumber: key.SingleNumber,
+					CurrentName: name, SuggestedName: suggestMap[key], Count: count,
+				})
+			}
+		}
 	}
 	// 依團體、單曲號排序
 	sort.Slice(result, func(i, j int) bool {
@@ -619,6 +649,292 @@ func BulkSetTitles(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"applied": applied, "updated": updated})
+}
+
+// venueKey 以 group + single_number + event_date 識別一個実体場次，
+// 因為同一張單可能跨多個日期在不同場地舉辦，不能只用 (group, single_number) 當 key
+type venueKey struct {
+	Group        string
+	SingleNumber int
+	EventDate    string
+}
+
+func loadVenueMap() map[venueKey]string {
+	var venues []models.Venue
+	db.DB.Find(&venues)
+	m := make(map[venueKey]string, len(venues))
+	for _, v := range venues {
+		m[venueKey{Group: v.Group, SingleNumber: v.SingleNumber, EventDate: v.EventDate}] = v.VenueName
+	}
+	return m
+}
+
+type VenueIssue struct {
+	Group          string `json:"group"`
+	SingleNumber   int    `json:"single_number"`
+	SingleName     string `json:"single_name"`
+	EventDate      string `json:"event_date"`
+	CurrentVenue   string `json:"current_venue"`
+	Count          int64  `json:"count"`
+	SuggestedVenue string `json:"suggested_venue"`
+}
+
+// GetVenueIssues 列出実体場次裡場地有問題的 (group, single_number, event_date) 組合：
+// 1) 場地空白 — 早期抓取版本沒有解析場地欄位留下的舊資料缺口，來源網站也無法回溯，只能人工登記
+// 2) 場地跟 venues 主表已登記的值不一致 — PushFullRecords 只在既有場地為空白時才會套用登記值（見 full_scraper.go），
+//    非空白但跟登記值不同的場地文字（打錯字、來源網站文字變動）永遠不會被自動覆蓋，需要人工比對
+// 3) 還沒登記過的場次，同時出現 2 種以上互相衝突的非空白場地文字 — 無法判斷哪個正確，全部列出讓管理者挑選
+//    （跟 GetTitleIssues 對單曲名稱衝突的偵測邏輯同一套）
+func GetVenueIssues(c *gin.Context) {
+	if !checkAdmin(c) {
+		return
+	}
+
+	venueMap := loadVenueMap()
+
+	type blankRow struct {
+		Group        string
+		SingleNumber int
+		SingleName   string
+		EventDate    string
+		Count        int64
+	}
+	var blanks []blankRow
+	db.DB.Model(&models.FullRecord{}).
+		Select(`"group", single_number, single_name, event_date, COUNT(*) as count`).
+		Where(`event_type = '実体' AND (venue IS NULL OR venue = '')`).
+		Group(`"group", single_number, single_name, event_date`).
+		Scan(&blanks)
+
+	result := make([]VenueIssue, 0, len(blanks))
+	for _, r := range blanks {
+		result = append(result, VenueIssue{
+			Group: r.Group, SingleNumber: r.SingleNumber, SingleName: r.SingleName, EventDate: r.EventDate,
+			Count: r.Count, SuggestedVenue: venueMap[venueKey{Group: r.Group, SingleNumber: r.SingleNumber, EventDate: r.EventDate}],
+		})
+	}
+
+	type venueRow struct {
+		Group        string
+		SingleNumber int
+		SingleName   string
+		EventDate    string
+		Venue        string
+		Count        int64
+	}
+	var venueRows []venueRow
+	db.DB.Model(&models.FullRecord{}).
+		Select(`"group", single_number, single_name, event_date, venue, COUNT(*) as count`).
+		Where(`event_type = '実体' AND venue IS NOT NULL AND venue != ''`).
+		Group(`"group", single_number, single_name, event_date, venue`).
+		Scan(&venueRows)
+
+	distinctVenues := map[venueKey]map[string]bool{}
+	for _, r := range venueRows {
+		key := venueKey{Group: r.Group, SingleNumber: r.SingleNumber, EventDate: r.EventDate}
+		if distinctVenues[key] == nil {
+			distinctVenues[key] = map[string]bool{}
+		}
+		distinctVenues[key][r.Venue] = true
+	}
+
+	for _, r := range venueRows {
+		key := venueKey{Group: r.Group, SingleNumber: r.SingleNumber, EventDate: r.EventDate}
+		if registered, ok := venueMap[key]; ok {
+			if r.Venue != registered {
+				result = append(result, VenueIssue{
+					Group: r.Group, SingleNumber: r.SingleNumber, SingleName: r.SingleName, EventDate: r.EventDate,
+					CurrentVenue: r.Venue, Count: r.Count, SuggestedVenue: registered,
+				})
+			}
+			continue
+		}
+		if len(distinctVenues[key]) >= 2 {
+			result = append(result, VenueIssue{
+				Group: r.Group, SingleNumber: r.SingleNumber, SingleName: r.SingleName, EventDate: r.EventDate,
+				CurrentVenue: r.Venue, Count: r.Count, SuggestedVenue: "",
+			})
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Group != result[j].Group {
+			return result[i].Group < result[j].Group
+		}
+		if result[i].SingleNumber != result[j].SingleNumber {
+			return result[i].SingleNumber < result[j].SingleNumber
+		}
+		if result[i].EventDate != result[j].EventDate {
+			return result[i].EventDate < result[j].EventDate
+		}
+		return result[i].CurrentVenue < result[j].CurrentVenue
+	})
+
+	c.JSON(http.StatusOK, result)
+}
+
+// FixVenue 登記單一 (group, single_number, event_date) 的場地，同時回填既有跟登記值不同的紀錄（含空白與打錯字），
+// 並寫入 venues 表供未來新匯入的同場次資料自動套用
+func FixVenue(c *gin.Context) {
+	if !checkAdmin(c) {
+		return
+	}
+
+	var req struct {
+		Group        string `json:"group" binding:"required"`
+		SingleNumber int    `json:"single_number"`
+		EventDate    string `json:"event_date" binding:"required"`
+		Venue        string `json:"venue" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "請提供 group、event_date 與 venue"})
+		return
+	}
+
+	var v models.Venue
+	if db.DB.Where(`"group" = ? AND single_number = ? AND event_date = ?`, req.Group, req.SingleNumber, req.EventDate).
+		First(&v).Error != nil {
+		db.DB.Create(&models.Venue{
+			Group: req.Group, SingleNumber: req.SingleNumber, EventDate: req.EventDate, VenueName: req.Venue,
+		})
+	} else {
+		db.DB.Model(&v).Update("venue_name", req.Venue)
+	}
+
+	updated := db.DB.Model(&models.FullRecord{}).
+		Where(`"group" = ? AND single_number = ? AND event_date = ? AND event_type = '実体' AND (venue IS NULL OR venue != ?)`,
+			req.Group, req.SingleNumber, req.EventDate, req.Venue).
+		Update("venue", req.Venue).RowsAffected
+
+	c.JSON(http.StatusOK, gin.H{"updated": updated})
+}
+
+// BulkSetVenues 一次登記多筆已知的場地（不需要先出現問題列表），
+// 同時回填既有跟登記值不同的紀錄（含空白與打錯字），並寫入 venues 表供未來自動套用
+func BulkSetVenues(c *gin.Context) {
+	if !checkAdmin(c) {
+		return
+	}
+
+	type venueEntry struct {
+		Group        string `json:"group" binding:"required"`
+		SingleNumber int    `json:"single_number"`
+		EventDate    string `json:"event_date" binding:"required"`
+		Venue        string `json:"venue" binding:"required"`
+	}
+	var req struct {
+		Venues []venueEntry `json:"venues" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "請提供 venues 陣列"})
+		return
+	}
+
+	var updated int64
+	applied := 0
+	for _, v := range req.Venues {
+		if v.Group == "" || v.EventDate == "" || v.Venue == "" {
+			continue
+		}
+
+		db.DB.Where(models.Venue{Group: v.Group, SingleNumber: v.SingleNumber, EventDate: v.EventDate}).
+			Assign(models.Venue{VenueName: v.Venue}).
+			FirstOrCreate(&models.Venue{})
+
+		result := db.DB.Model(&models.FullRecord{}).
+			Where(`"group" = ? AND single_number = ? AND event_date = ? AND event_type = '実体' AND (venue IS NULL OR venue != ?)`,
+				v.Group, v.SingleNumber, v.EventDate, v.Venue).
+			Update("venue", v.Venue)
+		updated += result.RowsAffected
+		applied++
+	}
+
+	c.JSON(http.StatusOK, gin.H{"applied": applied, "updated": updated})
+}
+
+type KnownVenue struct {
+	Group        string `json:"group"`
+	SingleNumber int    `json:"single_number"`
+	SingleName   string `json:"single_name"`
+	EventDate    string `json:"event_date"`
+	Venue        string `json:"venue"`
+	Source       string `json:"source"` // correction / records
+}
+
+// GetKnownVenues 列出目前已知的場地對照：venues 表登記過的，加上 full_records 裡已經有場地文字的實際資料
+func GetKnownVenues(c *gin.Context) {
+	if !checkAdmin(c) {
+		return
+	}
+
+	var registered []models.Venue
+	db.DB.Find(&registered)
+
+	// venues 表本身沒有存單曲名稱，補查 full_records 裡同 (group, single_number) 的名稱供顯示
+	type singleNameRow struct {
+		Group        string
+		SingleNumber int
+		SingleName   string
+	}
+	var singleNameRows []singleNameRow
+	db.DB.Model(&models.FullRecord{}).
+		Select(`"group", single_number, MAX(single_name) as single_name`).
+		Where("single_name != ''").
+		Group(`"group", single_number`).
+		Scan(&singleNameRows)
+	singleNameMap := map[titleKey]string{}
+	for _, r := range singleNameRows {
+		singleNameMap[titleKey{Group: r.Group, SingleNumber: r.SingleNumber}] = r.SingleName
+	}
+
+	covered := map[venueKey]bool{}
+	result := make([]KnownVenue, 0, len(registered)+16)
+	for _, v := range registered {
+		result = append(result, KnownVenue{
+			Group: v.Group, SingleNumber: v.SingleNumber, EventDate: v.EventDate, Venue: v.VenueName, Source: "correction",
+			SingleName: singleNameMap[titleKey{Group: v.Group, SingleNumber: v.SingleNumber}],
+		})
+		covered[venueKey{Group: v.Group, SingleNumber: v.SingleNumber, EventDate: v.EventDate}] = true
+	}
+
+	type row struct {
+		Group        string
+		SingleNumber int
+		SingleName   string
+		EventDate    string
+		Venue        string
+	}
+	var rows []row
+	db.DB.Model(&models.FullRecord{}).
+		Select(`"group", single_number, MAX(single_name) as single_name, event_date, venue`).
+		Where(`event_type = '実体' AND venue IS NOT NULL AND venue != ''`).
+		Group(`"group", single_number, event_date, venue`).
+		Scan(&rows)
+	for _, r := range rows {
+		key := venueKey{Group: r.Group, SingleNumber: r.SingleNumber, EventDate: r.EventDate}
+		if covered[key] {
+			continue
+		}
+		covered[key] = true
+		result = append(result, KnownVenue{
+			Group: r.Group, SingleNumber: r.SingleNumber, SingleName: r.SingleName,
+			EventDate: r.EventDate, Venue: r.Venue, Source: "records",
+		})
+	}
+
+	groupOrder := map[string]int{"nogizaka46": 0, "sakurazaka46": 1, "hinatazaka46": 2}
+	sort.Slice(result, func(i, j int) bool {
+		gi, gj := groupOrder[result[i].Group], groupOrder[result[j].Group]
+		if gi != gj {
+			return gi < gj
+		}
+		if result[i].SingleNumber != result[j].SingleNumber {
+			return result[i].SingleNumber < result[j].SingleNumber
+		}
+		return result[i].EventDate < result[j].EventDate
+	})
+
+	c.JSON(http.StatusOK, result)
 }
 
 func GetPurchaseTitleIssues(c *gin.Context) {

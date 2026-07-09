@@ -199,6 +199,7 @@ func GetDetailStats(c *gin.Context) {
 		MemberName   string  `json:"member_name"`
 		SingleNumber int     `json:"single_number"`
 		SingleName   string  `json:"single_name"`
+		ReleaseDate  string  `json:"release_date"`
 		LotteryRound int     `json:"lottery_round"`
 		EventDate    string  `json:"event_date"`
 		Session      string  `json:"session"`
@@ -209,12 +210,16 @@ func GetDetailStats(c *gin.Context) {
 
 	q := db.DB.Model(&models.Record{}).Where("user_id = ?", userID)
 	if grp := c.Query("group"); grp != "" {
-		q = q.Where(`"group" = ?`, grp)
+		q = q.Where(`records."group" = ?`, grp)
 	}
 	var rows []detailRow
-	q.Select(`"group", member_name, single_number, MAX(single_name) as single_name, lottery_round, event_date, session, COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won`).
-		Group(`"group", member_name, single_number, lottery_round, event_date, session`).
-		Order(`"group", member_name, single_number, lottery_round, event_date, session`).
+	q.Joins(`LEFT JOIN titles t ON t."group" = records."group" AND t.single_number = records.single_number AND t.org_album_name = ''`).
+		Select(`records."group", records.member_name, records.single_number, MAX(records.single_name) as single_name, ` +
+			`COALESCE(TO_CHAR(t.release_date, 'YYYY-MM-DD'), '') as release_date, ` +
+			`records.lottery_round, records.event_date, records.session, ` +
+			`COALESCE(SUM(records.applied_count),0) as total_applied, COALESCE(SUM(records.won_count),0) as total_won`).
+		Group(`records."group", records.member_name, records.single_number, t.release_date, records.lottery_round, records.event_date, records.session`).
+		Order(`records."group", records.member_name, records.single_number, records.lottery_round, records.event_date, records.session`).
 		Scan(&rows)
 
 	for i := range rows {

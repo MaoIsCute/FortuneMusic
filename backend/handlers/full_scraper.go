@@ -44,6 +44,7 @@ func PushFullRecords(c *gin.Context) {
 	}
 
 	now := time.Now()
+	venueMap := loadVenueMap()
 
 	// 先依 order_id 分流，批次查出已存在的記錄，避免在迴圈中逐筆查詢
 	var signIDs, fullIDs []string
@@ -118,6 +119,15 @@ func PushFullRecords(c *gin.Context) {
 			if existing.SingleName == "" && r.SingleName != "" {
 				changed["single_name"] = r.SingleName
 			}
+			if existing.Venue == "" && existing.EventType == "実体" {
+				candidate := r.Venue
+				if candidate == "" {
+					candidate = venueMap[venueKey{Group: existing.Group, SingleNumber: existing.SingleNumber, EventDate: existing.EventDate}]
+				}
+				if candidate != "" {
+					changed["venue"] = candidate
+				}
+			}
 			if len(changed) > 0 {
 				db.DB.Model(existing).Updates(changed)
 				updated++
@@ -126,6 +136,10 @@ func PushFullRecords(c *gin.Context) {
 			}
 			continue
 		}
+		venue := r.Venue
+		if venue == "" && r.EventType == "実体" {
+			venue = venueMap[venueKey{Group: r.Group, SingleNumber: r.SingleNumber, EventDate: r.EventDate}]
+		}
 		newFulls[r.OrderID] = models.FullRecord{
 			UserID:       user.ID,
 			OrderID:      r.OrderID,
@@ -133,7 +147,7 @@ func PushFullRecords(c *gin.Context) {
 			SingleNumber: r.SingleNumber,
 			SingleName:   r.SingleName,
 			EventType:    r.EventType,
-			Venue:        r.Venue,
+			Venue:        venue,
 			EventDate:    r.EventDate,
 			Session:      r.Session,
 			MemberName:   normalizeMember(r.MemberName),

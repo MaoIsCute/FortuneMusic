@@ -109,7 +109,21 @@ func Init(cfg *config.Config) {
 		END $$;
 	`)
 
-	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.SignEvent{}, &models.Purchase{}, &models.ScrapeLog{}, &models.Title{}); err != nil {
+	// titles 新增 release_date 欄位（冪等）
+	DB.Exec(`
+		DO $$
+		BEGIN
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'titles')
+			   AND NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_name = 'titles' AND column_name = 'release_date'
+			   ) THEN
+				ALTER TABLE titles ADD COLUMN release_date date;
+			END IF;
+		END $$;
+	`)
+
+	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.SignEvent{}, &models.Purchase{}, &models.ScrapeLog{}, &models.Title{}, &models.Venue{}); err != nil {
 		log.Fatal("AutoMigrate failed:", err)
 	}
 
@@ -120,4 +134,11 @@ func Init(cfg *config.Config) {
 		WHERE (order_id IS NULL OR order_id = '')
 		  AND source_url LIKE '%/apply_detail/%'
 	`)
+
+	// 個握/花費的 session 統一補上「第」前綴（冪等）：來源網站對場次的顯示方式不一致，
+	// 早期擴充功能解析時「第」是可有可無的（正規表達式 第?），導致「第1部」跟「1部」
+	// 被當成兩個不同場次分開統計；擴充功能端已改成一律補「第」，這裡回填既有資料
+	for _, tbl := range []string{"records", "purchases"} {
+		DB.Exec(`UPDATE ` + tbl + ` SET session = '第' || session WHERE session ~ '^[0-9]+部$'`)
+	}
 }

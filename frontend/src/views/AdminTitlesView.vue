@@ -11,7 +11,7 @@
           <el-button size="small" style="margin-left:12px" @click.stop="loadIssues">重新整理</el-button>
         </template>
         <div v-if="issues.length === 0" class="empty">目前沒有 タイトル未定 的紀錄</div>
-        <el-table table-layout="auto" v-else :data="issues" stripe>
+        <el-table table-layout="auto" v-else :data="issues" stripe :row-style="rowStyle">
           <el-table-column label="團體" min-width="70">
             <template #default="{ row }">{{ groupLabel(row.group) }}</template>
           </el-table-column>
@@ -42,6 +42,11 @@
       <el-collapse-item name="bulk">
         <template #title><span class="collapse-title">單曲名稱批次登記</span></template>
         <p class="sub-text">批次登記已知單曲名稱（不需要先出現 タイトル未定 問題），一行一筆，格式：<code>團體代碼,單曲號,單曲名稱</code>，團體代碼為 nogizaka46 / sakurazaka46 / hinatazaka46。專輯請填單曲號 0，同一團體可以登記多張不同名稱的專輯（不會視為重複）；單曲同一團體+單曲號重複時取最後一行。</p>
+        <p class="sub-text">
+          範例：
+          <el-button size="small" text @click="copyExample(TITLE_EXAMPLE)">📋 複製範例</el-button>
+        </p>
+        <pre class="example-block">{{ TITLE_EXAMPLE }}</pre>
         <el-input
           v-model="bulkTitleText"
           type="textarea"
@@ -70,7 +75,7 @@
           </el-option>
         </el-select>
         <div v-if="filteredKnownTitles.length === 0" class="empty">沒有資料</div>
-        <el-table table-layout="auto" v-else :data="filteredKnownTitles" stripe size="small" max-height="500">
+        <el-table table-layout="auto" v-else :data="filteredKnownTitles" stripe size="small" max-height="500" :row-style="rowStyle">
           <el-table-column label="團體" min-width="120">
             <template #default="{ row }">
               <el-select v-if="row._editing" v-model="row._group" size="small" style="width:110px">
@@ -126,6 +131,17 @@ import { getAdminTitleIssues, getAdminKnownTitles, fixSingleTitle, bulkSetTitles
 const openSections = ref(['titles', 'bulk', 'known'])
 const issues = ref([])
 
+const TITLE_EXAMPLE = 'nogizaka46,42,42ndシングル『○○○』\nsakurazaka46,8,8thシングル『○○○』'
+
+async function copyExample(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已複製到剪貼簿')
+  } catch {
+    ElMessage.error('複製失敗，請手動選取複製')
+  }
+}
+
 async function loadIssues() {
   try {
     const res = await getAdminTitleIssues()
@@ -164,6 +180,9 @@ const GROUP_OPTIONS = [
 ]
 function groupLabel(g) {
   return GROUP_LABELS[g] || g || '—'
+}
+function rowStyle({ row }) {
+  return { color: GROUP_COLORS[row.group] }
 }
 
 const bulkTitleText = ref('')
@@ -312,4 +331,16 @@ onMounted(() => {
 .empty { color: #999; text-align: center; padding: 32px 0; }
 .sub-text { font-size: 11px; color: #999; display: block; margin-bottom: 8px; }
 .text-muted { color: #999; }
+.example-block {
+  font-family: monospace;
+  font-size: 12px;
+  background: #f5f7fa;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 0 10px;
+  white-space: pre;
+  overflow-x: auto;
+  user-select: all;
+}
 </style>

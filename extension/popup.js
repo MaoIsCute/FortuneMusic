@@ -35,6 +35,13 @@ stopBtn.addEventListener('click', () => {
   stopBtn.disabled    = true
 })
 
+// 網站對場次的顯示方式不一致，同一個場次有時候寫「第1部」、有時候只寫「1部」，
+// 沒有「第」的話統一補上，避免同一場次因為文字不一致被統計成兩筆
+function normalizeSession(s) {
+  if (!s) return s
+  return s.startsWith('第') ? s : '第' + s
+}
+
 // ─── 階段一：掃描申請列表，不進 detail page ──────────────────────────────────
 // 回傳 { orders: [{id, info}], hasMore } 或 { error }
 async function scrapeListPage(pageNum) {
@@ -119,7 +126,7 @@ async function fetchOrderDetails(entries) {
   function parseProductName(text) {
     const m = toHalf(text.trim()).match(itemRe)
     if (!m) return null
-    return { member_name: m[1].trim().replace(/[\s　]+/g, ''), raw_date: m[2], session: m[3], event_name: m[4].trim() }
+    return { member_name: m[1].trim().replace(/[\s　]+/g, ''), raw_date: m[2], session: normalizeSession(m[3]), event_name: m[4].trim() }
   }
 
   function buildEventLabel(applyInfo, fallback) {
@@ -605,8 +612,8 @@ function parseFullApiResults(results, singleNum, group) {
 
 const FORTUNE_USER_ID_KEY = 'fortuneUserId'
 
-const GROUP_MIN_SINGLE  = { nogizaka46: 25 }
-const GROUP_DEFAULT_END = { nogizaka46: 42 }
+const GROUP_MIN_SINGLE  = { nogizaka46: 25, hinatazaka46: 4, sakurazaka46: 4 }
+const GROUP_DEFAULT_END = { nogizaka46: 42, hinatazaka46: 17, sakurazaka46: 15 }
 const fullGroupHintEl   = document.getElementById('fullGroupHint')
 
 function applyGroupConstraints() {
@@ -615,9 +622,10 @@ function applyGroupConstraints() {
   fullStartEl.min = min
   fullEndEl.min   = min
   if (min > 1) {
-    if (!fullStartEl.value || parseInt(fullStartEl.value) < min) fullStartEl.value = min
-    if (fullEndEl.value    && parseInt(fullEndEl.value)   < min) fullEndEl.value   = min
-    if (!fullEndEl.value && GROUP_DEFAULT_END[group])            fullEndEl.value   = GROUP_DEFAULT_END[group]
+    fullStartEl.value = min
+    fullEndEl.value    = GROUP_DEFAULT_END[group] ?? min
+    const groupLabel = fullGroupEl.options[fullGroupEl.selectedIndex]?.text || group
+    fullGroupHintEl.innerHTML = `ℹ️ ${groupLabel} 最早收錄於系統的資料為 ${min}單。<br>起始單最小為 ${min}。`
     fullGroupHintEl.style.display = 'block'
   } else {
     fullGroupHintEl.style.display = 'none'
@@ -974,7 +982,7 @@ async function fetchEntryDetailItems(entries) {
 
       const memberName = m[1].trim().replace(/[\s　]+/g, '')
       const rawDate    = m[2]
-      const session    = m[3]
+      const session    = normalizeSession(m[3])
 
       // 単価
       let unitPrice = 0

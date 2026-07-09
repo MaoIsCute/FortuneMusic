@@ -2,7 +2,7 @@
   <nav class="navbar">
     <div class="brand" @click="router.push('/dashboard')">🎵 Fortune Tracker</div>
     <div class="links">
-      <router-link to="/dashboard">總覽</router-link>
+      <router-link to="/dashboard">全員統計</router-link>
 
       <div class="nav-group">
         <a :class="{ 'router-link-active': isRecordsActive }" @click.stop="toggle('records')">個握 ▾</a>
@@ -31,6 +31,7 @@
           <a @click="go('/admin/users')">使用者管理</a>
           <a @click="go('/admin/maintenance')">資料維護</a>
           <a @click="go('/admin/titles')">單曲名稱</a>
+          <a @click="go('/admin/venues')">場地管理</a>
           <a @click="go('/admin/sign-events')">簽名會紀錄</a>
         </div>
       </div>
@@ -50,7 +51,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
 
-const APP_VERSION = '1.2'
+const APP_VERSION = '1.4'
 
 const router = useRouter()
 const route  = useRoute()

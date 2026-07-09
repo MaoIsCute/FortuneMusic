@@ -60,7 +60,7 @@
         <el-collapse-item v-for="g in tree" :key="g.group" :name="g.group">
           <template #title>
             <div class="tree-title group-title">
-              <span class="tree-name">{{ groupLabel(g.group) }}</span>
+              <span class="tree-name" :style="{ color: GROUP_COLORS[g.group] }">{{ groupLabel(g.group) }}</span>
               <span class="tree-meta">¥{{ g.total_amount.toLocaleString() }} &nbsp;/&nbsp; {{ g.total_quantity }}張</span>
             </div>
           </template>
@@ -70,7 +70,7 @@
             <el-collapse-item v-for="s in g.singles" :key="`${s.single_number}:${s.single_name}`" :name="`${s.single_number}:${s.single_name}`">
               <template #title>
                 <div class="tree-title">
-                  <span class="tree-name">{{ formatSingle(s.single_name) }}</span>
+                  <span class="tree-name" :style="{ color: GROUP_COLORS[g.group] }">{{ formatSingle(s.single_name) }}</span>
                   <span class="tree-meta">¥{{ s.total_amount.toLocaleString() }} &nbsp;/&nbsp; {{ s.total_quantity }}張</span>
                 </div>
               </template>
@@ -87,7 +87,7 @@
 
                   <!-- 成員層 -->
                   <div v-for="m in r.members" :key="m.member_name" class="member-row">
-                    <span class="member-name">{{ m.member_name }}</span>
+                    <span class="member-name" :style="{ color: GROUP_COLORS[g.group], fontWeight: 500 }">{{ m.member_name }}</span>
                     <span class="member-meta">¥{{ m.total_amount.toLocaleString() }} &nbsp;/&nbsp; {{ m.total_quantity }}張</span>
                   </div>
                 </el-collapse-item>
@@ -103,7 +103,11 @@
       <template #header><span>依成員</span></template>
       <div v-if="byMember.length === 0" class="empty">尚無資料</div>
       <el-table v-else :data="byMember" stripe>
-        <el-table-column prop="member_name" label="成員" />
+        <el-table-column label="成員">
+          <template #default="{ row }">
+            <span :style="{ color: GROUP_COLORS[row.group], fontWeight: 500 }">{{ row.member_name }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="total_quantity" label="張數" width="80" align="right" />
         <el-table-column label="金額" width="130" align="right">
           <template #default="{ row }">¥{{ row.total_amount?.toLocaleString() }}</template>
@@ -139,6 +143,7 @@ const singleShowAll = ref(false)
 const memberShowAll = ref(false)
 
 const GROUP_LABELS = { nogizaka46: '乃木坂46', sakurazaka46: '櫻坂46', hinatazaka46: '日向坂46' }
+const GROUP_COLORS = { nogizaka46: '#9333ea', sakurazaka46: '#ec4899', hinatazaka46: '#0ea5e9' }
 function groupLabel(g) {
   return GROUP_LABELS[g] || g || '—'
 }
