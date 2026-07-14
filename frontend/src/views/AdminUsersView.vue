@@ -11,6 +11,8 @@
         <el-table-column prop="email" label="Email" min-width="220" />
         <el-table-column prop="name" label="名稱" min-width="90" />
         <el-table-column prop="record_count" label="個握筆數" min-width="80" />
+        <el-table-column prop="purchase_count" label="花費筆數" min-width="80" />
+        <el-table-column prop="full_record_count" label="全握筆數" min-width="80" />
         <el-table-column label="最後同步" min-width="160">
           <template #default="{ row }">
             {{ row.last_scraped ? row.last_scraped.replace('T', ' ').slice(0, 16) : '—' }}

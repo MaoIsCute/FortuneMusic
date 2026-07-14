@@ -22,7 +22,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 				strings.HasPrefix(origin, "chrome-extension://")
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Impersonate-User"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Impersonate-User", "X-Extension-Version"},
 		AllowCredentials: true,
 	}))
 

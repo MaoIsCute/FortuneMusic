@@ -213,12 +213,21 @@ func GetDetailStats(c *gin.Context) {
 		q = q.Where(`records."group" = ?`, grp)
 	}
 	var rows []detailRow
-	q.Joins(`LEFT JOIN titles t ON t."group" = records."group" AND t.single_number = records.single_number AND t.org_album_name = ''`).
+	// 單曲用 (group, single_number) 對 titles（org_album_name='' 是單曲的固定值）；
+	// 專輯沒有可靠編號，titles 表用抓取時的原始文字（org_album_name）當 key，但 records.single_name
+	// 寫入時可能已經套用過修正變成 titles.single_name（見 #109/#111），所以兩種都要比對得到，
+	// 否則專輯永遠 join 不到 release_date、在前端排序時被固定推到最後面（見 CLAUDE.md #113）。
+	// release_date 包在 MAX() 裡、拿掉 GROUP BY 的 t.release_date，避免 OR 條件理論上的 join 一列多筆
+	// 兜出重複列（單曲原本就是 1:1，專輯目前實務上也是 1:1，MAX 只是防禦性寫法不影響現有行為）
+	q.Joins(`LEFT JOIN titles t ON t."group" = records."group" AND (
+		(records.single_number > 0 AND t.single_number = records.single_number AND t.org_album_name = '') OR
+		(records.single_number = 0 AND t.single_number = 0 AND (t.org_album_name = records.single_name OR t.single_name = records.single_name))
+	)`).
 		Select(`records."group", records.member_name, records.single_number, MAX(records.single_name) as single_name, ` +
-			`COALESCE(TO_CHAR(t.release_date, 'YYYY-MM-DD'), '') as release_date, ` +
+			`COALESCE(MAX(TO_CHAR(t.release_date, 'YYYY-MM-DD')), '') as release_date, ` +
 			`records.lottery_round, records.event_date, records.session, ` +
 			`COALESCE(SUM(records.applied_count),0) as total_applied, COALESCE(SUM(records.won_count),0) as total_won`).
-		Group(`records."group", records.member_name, records.single_number, t.release_date, records.lottery_round, records.event_date, records.session`).
+		Group(`records."group", records.member_name, records.single_number, records.lottery_round, records.event_date, records.session`).
 		Order(`records."group", records.member_name, records.single_number, records.lottery_round, records.event_date, records.session`).
 		Scan(&rows)
 

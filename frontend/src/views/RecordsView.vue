@@ -31,25 +31,25 @@
         <el-option v-for="r in roundList" :key="r" :label="formatRound(r)" :value="r" />
       </el-select>
     </div>
-    <el-table :data="records" stripe>
-      <el-table-column label="成員">
+    <el-table table-layout="auto" :data="records" stripe>
+      <el-table-column label="成員" min-width="70">
         <template #default="{ row }">
           <span :style="{ color: GROUP_COLORS[row.group], fontWeight: 500 }">{{ row.member_name }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="單曲">
+      <el-table-column label="單曲" min-width="260">
         <template #default="{ row }">
           <span :style="{ color: GROUP_COLORS[row.group] }">{{ formatSingle(row.single_name) || row.event_name }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="次數" width="80">
+      <el-table-column label="次數" min-width="60">
         <template #default="{ row }">{{ formatRound(row.lottery_round) }}</template>
       </el-table-column>
-      <el-table-column prop="event_date" label="日期" width="110" />
-      <el-table-column prop="session" label="部數" width="90" />
-      <el-table-column prop="applied_count" label="應募" width="70" />
-      <el-table-column prop="won_count" label="中選" width="70" />
-      <el-table-column label="中選率" width="90">
+      <el-table-column prop="event_date" label="日期" min-width="90" />
+      <el-table-column prop="session" label="部數" min-width="65" />
+      <el-table-column prop="applied_count" label="應募" min-width="55" />
+      <el-table-column prop="won_count" label="中選" min-width="55" />
+      <el-table-column label="中選率" min-width="70">
         <template #default="{ row }">
           <span :class="rateClass(row)">{{ calcRate(row) }}%</span>
         </template>
@@ -110,17 +110,20 @@ async function reloadFilterLists() {
   ;(membersRes.data ?? []).forEach(m => nameGroupMap.set(m.member_name, m.group || ''))
   memberList.value = sortMembersByGroupAndGen([...nameGroupMap.entries()].map(([name, group]) => ({ name, group })))
   const rows = detailRes.data ?? []
-  // 單曲以 single_number 去重（避免同一張單曲有新舊兩種名稱時出現重複選項），
-  // 名稱優先取非 タイトル未定/非空的版本；專輯（single_number=0）沒有可靠編號，改用名稱本身當 key
+  // 單曲以 (group, single_number) 去重（避免同一張單曲有新舊兩種名稱時出現重複選項），
+  // 名稱優先取非 タイトル未定/非空的版本；專輯（single_number=0）沒有可靠編號，改用名稱本身當 key。
+  // key 一定要帶團體——不同團體各自從 1 開始編號，號碼範圍會重疊（例如日向坂46/櫻坂46 都有 #6-#15），
+  // 只用 single_number 當 key 會讓後處理的團體覆蓋掉先處理的，害同號碼的其他團體單曲從下拉消失
   const singleMap = new Map()
   for (const r of rows) {
     if (!r.single_name) continue
     if (r.single_number > 0) {
-      const existing = singleMap.get(r.single_number)
+      const key = `${r.group}:${r.single_number}`
+      const existing = singleMap.get(key)
       if (!existing || existing.name.includes('タイトル未定') || existing.name === '')
-        singleMap.set(r.single_number, { name: r.single_name, group: r.group, singleNumber: r.single_number, releaseDate: r.release_date || '' })
+        singleMap.set(key, { name: r.single_name, group: r.group, singleNumber: r.single_number, releaseDate: r.release_date || '' })
     } else {
-      singleMap.set(`a:${r.single_name}`, { name: r.single_name, group: r.group, singleNumber: 0, releaseDate: r.release_date || '' })
+      singleMap.set(`a:${r.group}:${r.single_name}`, { name: r.single_name, group: r.group, singleNumber: 0, releaseDate: r.release_date || '' })
     }
   }
   const GROUP_ORDER = { nogizaka46: 0, sakurazaka46: 1, hinatazaka46: 2 }
@@ -207,6 +210,7 @@ function formatRound(round) {
 </script>
 
 <style scoped>
+:deep(.el-table .cell) { white-space: nowrap; }
 .filters {
   display: flex;
   gap: 12px;

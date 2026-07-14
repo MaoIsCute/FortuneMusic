@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
 
 	"fortune-tracker/db"
@@ -125,15 +124,17 @@ func PushRecords(c *gin.Context) {
 			continue
 		}
 		singleName := r.SingleName
-		if singleName == "" || strings.Contains(singleName, "タイトル未定") {
-			if r.SingleNumber > 0 {
-				if corrected, ok := titleMaps.Singles[titleKey{Group: r.Group, SingleNumber: r.SingleNumber}]; ok {
-					singleName = corrected
-				}
-			} else if r.SingleName != "" {
-				if corrected, ok := titleMaps.Albums[albumCorrKey{Group: r.Group, OrgAlbumName: r.SingleName}]; ok {
-					singleName = corrected
-				}
+		if r.SingleNumber > 0 {
+			// 同一個單曲號，網站在不同頁面/不同時間點可能吐出不只一種「看起來正常」的原始文字
+			// （例如刪節號字元跟三個句點的版本都有），不能靠名稱格式判斷對不對，只要 titles 表
+			// 有登記就套用，沒登記過就是查表落空、維持原名稱（no-op），見 CLAUDE.md #111
+			if corrected, ok := titleMaps.Singles[titleKey{Group: r.Group, SingleNumber: r.SingleNumber}]; ok {
+				singleName = corrected
+			}
+		} else if r.SingleName != "" {
+			// 專輯同樣道理，見 CLAUDE.md #109
+			if corrected, ok := titleMaps.Albums[albumCorrKey{Group: r.Group, OrgAlbumName: r.SingleName}]; ok {
+				singleName = corrected
 			}
 		}
 		rec := models.Record{
@@ -253,15 +254,15 @@ func UpdateTitles(c *gin.Context) {
 			continue
 		}
 		singleName := u.SingleName
-		if singleName == "" || strings.Contains(singleName, "タイトル未定") {
-			if u.SingleNumber > 0 {
-				if corrected, ok := titleMaps.Singles[titleKey{Group: u.Group, SingleNumber: u.SingleNumber}]; ok {
-					singleName = corrected
-				}
-			} else if u.SingleName != "" {
-				if corrected, ok := titleMaps.Albums[albumCorrKey{Group: u.Group, OrgAlbumName: u.SingleName}]; ok {
-					singleName = corrected
-				}
+		if u.SingleNumber > 0 {
+			// 見 CLAUDE.md #111：只要 titles 表有登記就套用，不再靠名稱格式判斷要不要查表
+			if corrected, ok := titleMaps.Singles[titleKey{Group: u.Group, SingleNumber: u.SingleNumber}]; ok {
+				singleName = corrected
+			}
+		} else if u.SingleName != "" {
+			// 見 CLAUDE.md #109
+			if corrected, ok := titleMaps.Albums[albumCorrKey{Group: u.Group, OrgAlbumName: u.SingleName}]; ok {
+				singleName = corrected
 			}
 		}
 		result := db.DB.Model(&models.Record{}).

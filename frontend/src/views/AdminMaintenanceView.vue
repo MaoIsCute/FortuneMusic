@@ -58,49 +58,49 @@
 
             <!-- 個握 -->
             <el-table table-layout="auto" v-if="del.recordType === 'records'" :data="previewData" stripe size="small" max-height="400">
-              <el-table-column prop="member_name" label="成員" min-width="120" />
-              <el-table-column label="單曲" min-width="70">
-                <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
+              <el-table-column prop="member_name" label="成員" min-width="65" />
+              <el-table-column label="單曲" min-width="320">
+                <template #default="{ row }"><span style="white-space:nowrap">{{ formatSingle(row.single_name) }}</span></template>
               </el-table-column>
-              <el-table-column prop="event_date" label="日期" min-width="100" />
-              <el-table-column prop="session" label="部數" min-width="80" />
-              <el-table-column label="抽次" min-width="70">
+              <el-table-column prop="event_date" label="日期" min-width="90" />
+              <el-table-column prop="session" label="部數" min-width="60" />
+              <el-table-column label="抽次" min-width="55">
                 <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
               </el-table-column>
-              <el-table-column prop="applied_count" label="應募" min-width="60" align="right" />
-              <el-table-column prop="won_count" label="中選" min-width="60" align="right" />
+              <el-table-column prop="applied_count" label="應募" min-width="50" align="right" />
+              <el-table-column prop="won_count" label="中選" min-width="50" align="right" />
             </el-table>
 
             <!-- 全握 -->
             <el-table table-layout="auto" v-else-if="del.recordType === 'full-records'" :data="previewData" stripe size="small" max-height="400">
-              <el-table-column prop="member_name" label="成員" min-width="130" />
-              <el-table-column prop="event_type" label="類型" min-width="65" />
-              <el-table-column label="場地" min-width="150">
+              <el-table-column prop="member_name" label="成員" min-width="65" />
+              <el-table-column prop="event_type" label="類型" min-width="55" />
+              <el-table-column label="場地" min-width="180">
                 <template #default="{ row }"><span style="white-space:nowrap">{{ row.venue || '—' }}</span></template>
               </el-table-column>
-              <el-table-column prop="event_date" label="日期" min-width="100" />
-              <el-table-column prop="session" label="部數" min-width="80" />
-              <el-table-column label="單曲" min-width="70">
-                <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
+              <el-table-column prop="event_date" label="日期" min-width="90" />
+              <el-table-column prop="session" label="部數" min-width="60" />
+              <el-table-column label="單曲" min-width="280">
+                <template #default="{ row }"><span style="white-space:nowrap">{{ formatSingle(row.single_name) }}</span></template>
               </el-table-column>
-              <el-table-column prop="applied_count" label="應募" min-width="60" align="right" />
-              <el-table-column prop="won_count" label="中選" min-width="60" align="right" />
+              <el-table-column prop="applied_count" label="應募" min-width="50" align="right" />
+              <el-table-column prop="won_count" label="中選" min-width="50" align="right" />
             </el-table>
 
             <!-- 簽名會 -->
             <el-table table-layout="auto" v-else-if="del.recordType === 'sign-events'" :data="previewData" stripe size="small" max-height="400">
-              <el-table-column prop="member_name" label="成員" min-width="120" />
-              <el-table-column label="單曲" min-width="70">
-                <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
+              <el-table-column prop="member_name" label="成員" min-width="65" />
+              <el-table-column label="單曲" min-width="320">
+                <template #default="{ row }"><span style="white-space:nowrap">{{ formatSingle(row.single_name) }}</span></template>
               </el-table-column>
-              <el-table-column prop="event_date" label="日期" min-width="100" />
-              <el-table-column label="抽次" min-width="70">
+              <el-table-column prop="event_date" label="日期" min-width="90" />
+              <el-table-column label="抽次" min-width="55">
                 <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
               </el-table-column>
-              <el-table-column label="應募" min-width="70" align="right">
+              <el-table-column label="應募" min-width="60" align="right">
                 <template #default="{ row }">{{ Math.round(row.applied_count / 3) }} 口</template>
               </el-table-column>
-              <el-table-column label="結果" min-width="65" align="center">
+              <el-table-column label="結果" min-width="55" align="center">
                 <template #default="{ row }">
                   <span :class="row.won_count > 0 ? 'tag-won' : 'tag-lost'">{{ row.won_count > 0 ? '中選' : '落選' }}</span>
                 </template>
@@ -109,15 +109,15 @@
 
             <!-- 個握花費 -->
             <el-table table-layout="auto" v-else :data="previewData" stripe size="small" max-height="400">
-              <el-table-column prop="member_name" label="成員" min-width="120" />
-              <el-table-column label="單曲" min-width="70">
-                <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
+              <el-table-column prop="member_name" label="成員" min-width="65" />
+              <el-table-column label="單曲" min-width="320">
+                <template #default="{ row }"><span style="white-space:nowrap">{{ formatSingle(row.single_name) }}</span></template>
               </el-table-column>
-              <el-table-column prop="event_date" label="日期" min-width="100" />
-              <el-table-column prop="session" label="部數" min-width="80" />
-              <el-table-column prop="unit_price" label="單價" min-width="80" align="right" />
-              <el-table-column prop="quantity" label="數量" min-width="60" align="right" />
-              <el-table-column prop="subtotal" label="小計" min-width="80" align="right" />
+              <el-table-column prop="event_date" label="日期" min-width="90" />
+              <el-table-column prop="session" label="部數" min-width="60" />
+              <el-table-column prop="unit_price" label="單價" min-width="60" align="right" />
+              <el-table-column prop="quantity" label="數量" min-width="50" align="right" />
+              <el-table-column prop="subtotal" label="小計" min-width="60" align="right" />
             </el-table>
 
             <el-pagination

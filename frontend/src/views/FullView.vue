@@ -40,29 +40,29 @@
         </el-select>
       </div>
 
-      <el-table :data="records" stripe>
-        <el-table-column label="成員" width="120">
+      <el-table table-layout="auto" :data="records" stripe>
+        <el-table-column label="成員" min-width="70">
           <template #default="{ row }">
             <span :style="{ color: GROUP_COLORS[row.group], fontWeight: 500 }">{{ row.member_name }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="event_type" label="類型" width="70" />
-        <el-table-column label="場地" width="160">
+        <el-table-column prop="event_type" label="類型" min-width="55" />
+        <el-table-column label="場地" min-width="160">
           <template #default="{ row }">
             <span style="white-space:nowrap">{{ row.venue || '—' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="event_date" label="日期" width="100" />
-        <el-table-column prop="session" label="部數" width="70" />
-        <el-table-column label="單曲" width="70">
+        <el-table-column prop="event_date" label="日期" min-width="90" />
+        <el-table-column prop="session" label="部數" min-width="60" />
+        <el-table-column label="單曲" min-width="220">
           <template #default="{ row }">{{ formatSingle(row.single_name) }}</template>
         </el-table-column>
-        <el-table-column label="抽次" width="70">
+        <el-table-column label="抽次" min-width="55">
           <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
         </el-table-column>
-        <el-table-column prop="applied_count" label="應募" width="60" />
-        <el-table-column prop="won_count" label="中選" width="60" align="right" />
-        <el-table-column label="中選率" width="75" align="right">
+        <el-table-column prop="applied_count" label="應募" min-width="50" />
+        <el-table-column prop="won_count" label="中選" min-width="50" align="right" />
+        <el-table-column label="中選率" min-width="70" align="right">
           <template #default="{ row }">
             <span v-if="row.applied_count > 0" :class="rateClass((row.won_count / row.applied_count * 100).toFixed(1))">
               {{ (row.won_count / row.applied_count * 100).toFixed(1) }}%
@@ -189,6 +189,7 @@ function formatSingle(name) {
 </script>
 
 <style scoped>
+:deep(.el-table .cell) { white-space: nowrap; }
 .page { background: #f5f7fa; min-height: 100vh; }
 .card {
   background: white;

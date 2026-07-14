@@ -325,11 +325,13 @@ func GetKnownTitles(c *gin.Context) {
 }
 
 type AdminUser struct {
-	ID          uint       `json:"id"`
-	Email       string     `json:"email"`
-	Name        string     `json:"name"`
-	RecordCount int64      `json:"record_count"`
-	LastScraped *time.Time `json:"last_scraped"`
+	ID              uint       `json:"id"`
+	Email           string     `json:"email"`
+	Name            string     `json:"name"`
+	RecordCount     int64      `json:"record_count"`
+	PurchaseCount   int64      `json:"purchase_count"`
+	FullRecordCount int64      `json:"full_record_count"`
+	LastScraped     *time.Time `json:"last_scraped"`
 }
 
 func GetAdminUsers(c *gin.Context) {
@@ -337,10 +339,14 @@ func GetAdminUsers(c *gin.Context) {
 		return
 	}
 	var users []AdminUser
+	// 花費（purchases）/全握（full_records）筆數各自用獨立的相關子查詢算，不能跟 records 一樣直接
+	// LEFT JOIN 進同一個 SELECT——一次 JOIN 三張一對多的表會互相撐開成笛卡兒積，COUNT 出來的筆數會不準
 	db.DB.Model(&models.User{}).
-		Select("users.id, users.email, users.name, COUNT(records.id) as record_count, MAX(records.scraped_at) as last_scraped").
-		Joins("LEFT JOIN records ON records.user_id = users.id").
-		Group("users.id, users.email, users.name").
+		Select(`users.id, users.email, users.name,
+			(SELECT COUNT(*) FROM records WHERE records.user_id = users.id) as record_count,
+			(SELECT COUNT(*) FROM purchases WHERE purchases.user_id = users.id) as purchase_count,
+			(SELECT COUNT(*) FROM full_records WHERE full_records.user_id = users.id) as full_record_count,
+			(SELECT MAX(records.scraped_at) FROM records WHERE records.user_id = users.id) as last_scraped`).
 		Order("users.id").
 		Scan(&users)
 	c.JSON(http.StatusOK, users)
@@ -526,6 +532,16 @@ func loadTitleMap() titleMaps {
 	return m
 }
 
+// looksLikeDisplayFormat 偵測是不是誤把「畫面顯示格式」當成原始名稱存進來。
+// RecordsView.vue 等前端頁面的 formatSingle() 只在顯示時把「Nthアルバム」轉成中文「N專」、
+// 「アルバム」轉成「專輯」，titles/records/purchases 的 single_name 欄位定位是原始日文名稱，
+// 中文轉換不該存進資料庫——否則畫面顯示層的規則以後要調整時，已經被中文化的舊資料不會再被
+// formatSingle() 處理到，變成撿不乾淨的技術債（見 CLAUDE.md #110）。
+// 「專」是繁體中文字（U+5C08），跟日文的「専」（U+5C02，如「専用」）是不同字，用它當偵測特徵不會誤判到合法的日文名稱。
+func looksLikeDisplayFormat(name string) bool {
+	return strings.Contains(name, "專")
+}
+
 func FixSingleTitle(c *gin.Context) {
 	if !checkAdmin(c) {
 		return
@@ -544,6 +560,10 @@ func FixSingleTitle(c *gin.Context) {
 	}
 	if strings.Contains(req.SingleName, "タイトル未定") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "標題不能包含「タイトル未定」"})
+		return
+	}
+	if looksLikeDisplayFormat(req.SingleName) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "標題看起來是畫面顯示格式（例如「5專」/「專輯」），請填入原始日文格式（例如「5thアルバム『標題』」）；中文是前端顯示時才轉換的，不應該存進資料庫"})
 		return
 	}
 
@@ -622,7 +642,7 @@ func BulkSetTitles(c *gin.Context) {
 	var updated int64
 	applied := 0
 	for _, t := range req.Titles {
-		if t.Group == "" || strings.Contains(t.SingleName, "タイトル未定") || t.SingleName == "" {
+		if t.Group == "" || strings.Contains(t.SingleName, "タイトル未定") || t.SingleName == "" || looksLikeDisplayFormat(t.SingleName) {
 			continue
 		}
 

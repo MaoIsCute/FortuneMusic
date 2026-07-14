@@ -28,15 +28,15 @@
             <span :style="{ color: GROUP_COLORS[row.group], fontWeight: 500 }">{{ groupLabel(row.group) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="成員" min-width="110">
+        <el-table-column label="成員" min-width="65">
           <template #default="{ row }">
             <span :style="{ color: GROUP_COLORS[row.group] }">{{ row.member_name }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="單曲" min-width="80">
+        <el-table-column label="單曲" min-width="240">
           <template #default="{ row }">{{ formatSingle(row.single_name) || `${row.single_number}單` }}</template>
         </el-table-column>
-        <el-table-column prop="event_date" label="日期" min-width="100" />
+        <el-table-column prop="event_date" label="日期" min-width="90" />
         <el-table-column label="抽次" min-width="60" align="center">
           <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
         </el-table-column>

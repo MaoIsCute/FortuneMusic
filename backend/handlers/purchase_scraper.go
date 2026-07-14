@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strings"
 	"time"
 
 	"fortune-tracker/db"
@@ -110,15 +109,15 @@ func PushPurchases(c *gin.Context) {
 		}
 
 		singleName := p.SingleName
-		if singleName == "" || strings.Contains(singleName, "タイトル未定") {
-			if p.SingleNumber > 0 {
-				if corrected, ok := titleMaps.Singles[titleKey{Group: p.Group, SingleNumber: p.SingleNumber}]; ok {
-					singleName = corrected
-				}
-			} else if p.SingleName != "" {
-				if corrected, ok := titleMaps.Albums[albumCorrKey{Group: p.Group, OrgAlbumName: p.SingleName}]; ok {
-					singleName = corrected
-				}
+		if p.SingleNumber > 0 {
+			// 見 CLAUDE.md #111：只要 titles 表有登記就套用，不再靠名稱格式判斷要不要查表
+			if corrected, ok := titleMaps.Singles[titleKey{Group: p.Group, SingleNumber: p.SingleNumber}]; ok {
+				singleName = corrected
+			}
+		} else if p.SingleName != "" {
+			// 見 CLAUDE.md #109
+			if corrected, ok := titleMaps.Albums[albumCorrKey{Group: p.Group, OrgAlbumName: p.SingleName}]; ok {
+				singleName = corrected
 			}
 		}
 
@@ -283,6 +282,38 @@ type treeGroup struct {
 	Singles       []treeSingle `json:"singles"`
 }
 
+// 單曲用 (group, single_number) 查發售日；專輯沒有可靠編號，titles 表用抓取時的原始文字
+// （org_album_name）當 key，但 purchases.single_name 不一定已經套用過 titles 表的修正——
+// 修正是否已經套用取決於這筆資料最後一次寫入/更新的時間點在 #109/#111 那個 bug 修好之前還是之後，
+// 修好前寫入的既有資料仍然是原始文字，修好後才會是 titles.single_name 那個修正後的值，兩種都可能出現，
+// 所以 org_album_name 跟 single_name 兩個都要能查到同一個 release_date，見 CLAUDE.md #114
+type singleReleaseKey struct {
+	Group        string
+	SingleNumber int
+}
+type albumReleaseKey struct {
+	Group      string
+	SingleName string
+}
+
+func loadReleaseDateMaps() (map[singleReleaseKey]*time.Time, map[albumReleaseKey]*time.Time) {
+	var titleRows []models.Title
+	db.DB.Where("release_date IS NOT NULL").Find(&titleRows)
+	singles := map[singleReleaseKey]*time.Time{}
+	albums := map[albumReleaseKey]*time.Time{}
+	for _, t := range titleRows {
+		if t.SingleNumber > 0 {
+			singles[singleReleaseKey{Group: t.Group, SingleNumber: t.SingleNumber}] = t.ReleaseDate
+		} else {
+			if t.OrgAlbumName != "" {
+				albums[albumReleaseKey{Group: t.Group, SingleName: t.OrgAlbumName}] = t.ReleaseDate
+			}
+			albums[albumReleaseKey{Group: t.Group, SingleName: t.SingleName}] = t.ReleaseDate
+		}
+	}
+	return singles, albums
+}
+
 func GetPurchaseTree(c *gin.Context) {
 	userID := getUserID(c)
 
@@ -291,12 +322,15 @@ func GetPurchaseTree(c *gin.Context) {
 		Order("lottery_round ASC, member_name ASC").
 		Find(&purchases)
 
+	singleReleaseByNum, albumReleaseByName := loadReleaseDateMaps()
+
 	groupOrder := []string{}
 	groupMap := map[string]*treeGroup{}
 	groupMinTime := map[string]*time.Time{}
 	singleOrder := map[string][]string{}
 	singleMap := map[string]map[string]*treeSingle{}
 	singleMinTime := map[string]map[string]*time.Time{}
+	singleReleaseTime := map[string]map[string]*time.Time{}
 
 	for _, p := range purchases {
 		g := p.Group
@@ -306,6 +340,7 @@ func GetPurchaseTree(c *gin.Context) {
 			singleOrder[g] = []string{}
 			singleMap[g] = map[string]*treeSingle{}
 			singleMinTime[g] = map[string]*time.Time{}
+			singleReleaseTime[g] = map[string]*time.Time{}
 		}
 		grp := groupMap[g]
 		grp.TotalAmount += int64(p.Subtotal)
@@ -323,6 +358,11 @@ func GetPurchaseTree(c *gin.Context) {
 				SingleName:   p.SingleName,
 			}
 			singleOrder[g] = append(singleOrder[g], sk)
+			if p.SingleNumber > 0 {
+				singleReleaseTime[g][sk] = singleReleaseByNum[singleReleaseKey{Group: g, SingleNumber: p.SingleNumber}]
+			} else {
+				singleReleaseTime[g][sk] = albumReleaseByName[albumReleaseKey{Group: g, SingleName: p.SingleName}]
+			}
 		}
 		s := singleMap[g][sk]
 		s.TotalAmount += int64(p.Subtotal)
@@ -383,11 +423,42 @@ func GetPurchaseTree(c *gin.Context) {
 		})
 	}
 
+	// 單曲層排序：有登記官方發售日的優先照發售日 DESC 排（新的在前），
+	// 沒登記過發售日的單曲退回原本「最早購買時間 DESC」的排法，兩種混在一起時
+	// 有發售日的一律排在沒有的前面，避免因為缺資料而讓新單曲被舊的購買時間蓋過去
+	bySingleOrderDesc := func(keys []string, release map[string]*time.Time, minTime map[string]*time.Time) {
+		sort.Slice(keys, func(i, j int) bool {
+			ri, rj := release[keys[i]], release[keys[j]]
+			if ri != nil || rj != nil {
+				if ri == nil {
+					return false
+				}
+				if rj == nil {
+					return true
+				}
+				if !ri.Equal(*rj) {
+					return ri.After(*rj)
+				}
+			}
+			ti, tj := minTime[keys[i]], minTime[keys[j]]
+			if ti == nil && tj == nil {
+				return false
+			}
+			if ti == nil {
+				return false
+			}
+			if tj == nil {
+				return true
+			}
+			return ti.After(*tj)
+		})
+	}
+
 	byMinTimeDesc(groupOrder, groupMinTime)
 
 	result := make([]treeGroup, 0, len(groupOrder))
 	for _, g := range groupOrder {
-		byMinTimeDesc(singleOrder[g], singleMinTime[g])
+		bySingleOrderDesc(singleOrder[g], singleReleaseTime[g], singleMinTime[g])
 		grp := groupMap[g]
 		for _, sk := range singleOrder[g] {
 			grp.Singles = append(grp.Singles, *singleMap[g][sk])

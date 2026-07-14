@@ -35,11 +35,11 @@ stopBtn.addEventListener('click', () => {
   stopBtn.disabled    = true
 })
 
-// 網站對場次的顯示方式不一致，同一個場次有時候寫「第1部」、有時候只寫「1部」，
-// 沒有「第」的話統一補上，避免同一場次因為文字不一致被統計成兩筆
-function normalizeSession(s) {
-  if (!s) return s
-  return s.startsWith('第') ? s : '第' + s
+// 全形字元轉半形（U+FF01–U+FF5E → U+0021–U+007E），全握 API 資料（parseFullApiResults）
+// 直接在這裡的 popup 作用域解析，不經過 chrome.scripting.executeScript 注入，可以共用這一份；
+// 個握/花費那幾個會被注入頁面獨立執行的函式帶不到這裡，各自內建了自己的版本（見 CLAUDE.md #100）
+function toHalf(s) {
+  return (s || '').replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
 }
 
 // 所有打後端 /scrape/* 的請求都要經過這裡，統一帶上擴充功能版本號，
@@ -66,6 +66,12 @@ function fetchErrorMessage(json, fallback) {
 // ─── 階段一：掃描申請列表，不進 detail page ──────────────────────────────────
 // 回傳 { orders: [{id, info}], hasMore } 或 { error }
 async function scrapeListPage(pageNum) {
+  // 這個函式會透過 chrome.scripting.executeScript 整包序列化注入頁面獨立執行，
+  // 帶不到外層作用域，所以在這裡內建一份自己的 toHalf()（跟 fetchOrderDetails/
+  // fetchEntryDetailItems 同樣的理由，見 CLAUDE.md #100）
+  function toHalf(s) {
+    return (s || '').replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  }
   let doc
   if (pageNum === 1) {
     doc = document
@@ -76,9 +82,12 @@ async function scrapeListPage(pageNum) {
     try { res = await fetch(`/mypage/apply_list/?page=${pageNum - 1}`) } catch (e) {
       return { error: `第 ${pageNum} 頁讀取失敗：${e.message}` }
     }
+    // 403 跟「アクセスが集中」流量限制頁面標記 rateLimited，讓呼叫端知道這種錯誤值得自動重試，
+    // 不是訂單本身有問題（見 CLAUDE.md #105）
+    if (res.status === 403) return { error: `第 ${pageNum} 頁：網站流量限制（403），將自動重試`, rateLimited: true }
     if (!res.ok) return { error: `第 ${pageNum} 頁回應錯誤：${res.status}` }
     const html = await res.text()
-    if (html.includes('アクセスが集中')) return { error: `第 ${pageNum} 頁：網站流量限制，請稍後再試` }
+    if (html.includes('アクセスが集中')) return { error: `第 ${pageNum} 頁：網站流量限制，將自動重試`, rateLimited: true }
     doc = new DOMParser().parseFromString(html, 'text/html')
   }
 
@@ -105,9 +114,11 @@ async function scrapeListPage(pageNum) {
 
     const tdEvent = container.querySelector('td.tdEvent')
     if (tdEvent) {
-      const eventText = tdEvent.textContent.trim()
+      const eventText = toHalf(tdEvent.textContent.trim())
       const sm    = eventText.match(/(\d+)(st|nd|rd|th)(?:シングル|SG)/)
-      const am    = eventText.match(/(\d+)(st|nd|rd|th)アルバム/)
+      // 網站對專輯的顯示方式不一致，有時寫「2ndアルバム」（片假名），有時寫「2nd Album」（羅馬字），
+      // 兩種都要能辨識，否則沒對到的那種會 fallback 回傳整段原始文字（見 CLAUDE.md #103）
+      const am    = eventText.match(/(\d+)(st|nd|rd|th)\s*(?:アルバム|Album)/i)
       const titleM = eventText.match(/[『「](.+?)[』」]/)
       const rm    = eventText.match(/第(\d+)次/)
       if (rm) info.lotteryRound = parseInt(rm[1])
@@ -119,7 +130,7 @@ async function scrapeListPage(pageNum) {
         info.albumNum    = am[1]
         info.albumSuffix = am[2]
         info.albumTitle  = titleM ? titleM[1] : null
-      } else if (/アルバム/.test(eventText)) {
+      } else if (/アルバム|Album/i.test(eventText)) {
         info.isAlbum   = true
         info.albumTitle = titleM ? titleM[1] : null
       }
@@ -142,6 +153,12 @@ async function fetchOrderDetails(entries) {
   const itemRe = /^(.+?)【(\d{1,2}\/\d{1,2})[^】]*(第?\d+部)】(.+)$/
   function toHalf(s) {
     return (s || '').replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  }
+  // normalizeSession 是 popup.js 外層函式，但這個函式會透過 chrome.scripting.executeScript
+  // 整包序列化注入頁面獨立執行，帶不到外層作用域，所以在這裡內建一份自己的版本
+  function normalizeSession(s) {
+    if (!s) return s
+    return s.startsWith('第') ? s : '第' + s
   }
 
   function parseProductName(text) {
@@ -182,11 +199,17 @@ async function fetchOrderDetails(entries) {
     }
 
     let html = await tryFetch()
+    // 流量限制通常是短暫的，拉長間隔多重試幾次，減少訂單被靜默跳過、
+    // 使用者要重複點好幾次「開始抓取」才能抓齊的情況
     if (html === null) {
       await new Promise(r => setTimeout(r, 4000))
       html = await tryFetch()
     }
-    if (html === null) return []
+    if (html === null) {
+      await new Promise(r => setTimeout(r, 8000))
+      html = await tryFetch()
+    }
+    if (html === null) return { id, records: [], failed: true }
 
     const detailDoc  = parser.parseFromString(html, 'text/html')
     const sourceBase = `https://fortunemusic.jp/mypage/apply_detail/${id}/`
@@ -232,18 +255,22 @@ async function fetchOrderDetails(entries) {
       }
     })
 
-    return Object.values(aggregated)
+    return { id, records: Object.values(aggregated), failed: false }
   }
 
   const records = []
+  const failedIds = []
   for (let i = 0; i < entries.length; i += CONCURRENCY) {
     const batch = entries.slice(i, i + CONCURRENCY)
     const batchResults = await Promise.all(batch.map(fetchSingleOrder))
-    batchResults.forEach(r => records.push(...r))
+    batchResults.forEach(r => {
+      records.push(...r.records)
+      if (r.failed) failedIds.push(r.id)
+    })
     if (i + CONCURRENCY < entries.length) await new Promise(r => setTimeout(r, 500))
   }
 
-  return { records }
+  return { records, failedIds }
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -344,10 +371,35 @@ function hideProgress() {
   progressBarFill.style.width = '0%'
 }
 
+// 流量限制重試前的等待，一邊倒數一邊更新進度提示，讓使用者看得到「正在自動重試」而不是卡住；
+// 每秒檢查一次 isStopping，使用者按「停止」時可以立刻中斷等待
+async function waitWithRetryProgress(label, seconds, attempt, maxAttempts, reasonMsg) {
+  for (let s = seconds; s > 0; s--) {
+    if (isStopping) return
+    updateProgress(label, 0, 0, `${reasonMsg}，${s} 秒後自動重試（第 ${attempt}/${maxAttempts} 次）...`)
+    await new Promise(r => setTimeout(r, 1000))
+  }
+}
+
 function buildMismatchWarning(mismatches) {
   if (!mismatches || mismatches.length === 0) return null
   const ids = mismatches.slice(0, 5).map(m => m.id).join(', ') + (mismatches.length > 5 ? ' 等' : '')
   return `${mismatches.length} 筆訂單小計不符，可能漏抓（entry_id: ${ids}）`
+}
+
+// 訂單詳情頁多次重試後仍抓不到（通常是流量限制）時的提示，這些訂單尚未存入資料庫，
+// 需要靠「補抓遺漏」按鈕（或再次「開始抓取」）才能補齊，不能讓使用者誤以為已經抓完；
+// idLabel 讓個握（apply_id）跟花費（entry_id）共用同一套訊息格式
+function buildOrderFetchWarning(failedEntries, idLabel = 'apply_id') {
+  if (!failedEntries || failedEntries.length === 0) return null
+  const ids = failedEntries.slice(0, 5).map(e => e.id).join(', ') + (failedEntries.length > 5 ? ' 等' : '')
+  return `${failedEntries.length} 筆訂單因網站流量限制未能抓取成功，尚未存入資料庫，請點下方「補抓遺漏」按鈕重試（${idLabel}: ${ids}）`
+}
+
+// addLogEntry 只吃單一 warningMsg，把小計不符 + 抓取失敗兩種警告合併成一則
+function combineWarnings(...msgs) {
+  const parts = msgs.filter(Boolean)
+  return parts.length > 0 ? parts.join('；') : null
 }
 
 function addLogEntry(type, newCount, skipCount, errorMsg, stopped = false, elapsed = null, warningMsg = null) {
@@ -468,6 +520,9 @@ scrapeBtn.addEventListener('click', async () => {
   let page         = 1
   let errorMsg     = ''
   let techError    = ''
+  let rateLimitRetries = 0
+  const MAX_RATE_LIMIT_RETRIES = 3
+  const allFailedEntries = []
 
   try {
     const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/apply_list/*' })
@@ -483,7 +538,17 @@ scrapeBtn.addEventListener('click', async () => {
       })
       const listData = listResult[0]?.result
       if (!listData)        { errorMsg = '掃描失敗，請確認申請列表頁面是否正常顯示'; techError = '掃描失敗：executeScript 回傳 null'; break }
-      if (listData.error)   { errorMsg = techError = listData.error; break }
+      if (listData.error) {
+        if (listData.rateLimited && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
+          rateLimitRetries++
+          await waitWithRetryProgress('個握抽選', 12, rateLimitRetries, MAX_RATE_LIMIT_RETRIES, listData.error)
+          if (isStopping) break
+          continue
+        }
+        errorMsg = techError = listData.error
+        break
+      }
+      rateLimitRetries = 0
       if (!listData.hasMore) break
 
       const { orders } = listData
@@ -508,6 +573,9 @@ scrapeBtn.addEventListener('click', async () => {
           args:   [newEntries],
         })
         const detailData = detailResult[0]?.result
+        if (detailData?.failedIds?.length > 0) {
+          allFailedEntries.push(...newEntries.filter(o => detailData.failedIds.includes(o.id)))
+        }
         if (detailData?.records?.length > 0) {
           const pushRes = await backendFetch(`${backendUrl}/scrape/push`, {
             method:  'POST',
@@ -548,13 +616,22 @@ scrapeBtn.addEventListener('click', async () => {
       page++
     }
 
+    // 部分訂單多次重試後仍抓不到（通常是流量限制），不能悄悄放過——
+    // 併入既有的「補抓遺漏」佇列並顯示按鈕，讓使用者一眼看到還有幾筆沒抓齊、可以直接點按鈕補
+    if (allFailedEntries.length > 0) {
+      const existingIds = new Set(verifyMissingEntries.map(e => e.id))
+      allFailedEntries.forEach(e => { if (!existingIds.has(e.id)) { verifyMissingEntries.push(e); existingIds.add(e.id) } })
+      refetchBtn.textContent  = `補抓遺漏 (${verifyMissingEntries.length} 筆)`
+      refetchBtn.style.display = 'block'
+    }
+
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('個握抽選', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
+    addLogEntry('個握抽選', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, buildOrderFetchWarning(allFailedEntries))
     await pushScrapeLog(backendUrl, scrapeToken, '個握抽選', totalNew, totalSkipped, techError || errorMsg, elapsed)
     if (!errorMsg && !isStopping) setWaitingMode(false)
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('個握抽選', totalNew, totalSkipped, '抓取過程發生未預期錯誤，請稍後再試', false, elapsed)
+    addLogEntry('個握抽選', totalNew, totalSkipped, '抓取過程發生未預期錯誤，請稍後再試', false, elapsed, buildOrderFetchWarning(allFailedEntries))
     await pushScrapeLog(backendUrl, scrapeToken, '個握抽選', totalNew, totalSkipped, e.message, elapsed)
   } finally {
     scrapeBtn.disabled    = false
@@ -585,9 +662,10 @@ function parseFullApiResults(results, singleNum, group) {
 
   for (const item of results) {
     const prizeInfo = item.prizeInfo || {}
-    const dateStr = prizeInfo.date || ''
-    const eventName = prizeInfo.event || ''
-    const atIdx = dateStr.indexOf('＠')
+    // toHalf() 要在切 ＠ 之前先套用整段字串，切完之後 dateStr 裡的 ＠ 已經變半形 @
+    const dateStr = toHalf(prizeInfo.date || '')
+    const eventName = toHalf(prizeInfo.event || '')
+    const atIdx = dateStr.indexOf('@')
     const eventType = eventName.includes('リアル') ? '実体' : '線上'
     const venue = atIdx >= 0 ? dateStr.slice(atIdx + 1).trim() : ''
 
@@ -595,9 +673,9 @@ function parseFullApiResults(results, singleNum, group) {
     if (!dm) continue
     const eventDate = `${dm[1]}/${parseInt(dm[2])}/${parseInt(dm[3])}`
 
-    const session = prizeInfo.part || ''
+    const session = toHalf(prizeInfo.part || '')
     const memberName = (prizeInfo.members || [])
-      .map(m => m.replace(/[\s　]+/g, '').trim()).filter(Boolean).join('・')
+      .map(m => toHalf(m).replace(/[\s　]+/g, '').trim()).filter(Boolean).join('・')
     if (!memberName) continue
 
     const appliedCount = item.count || 0
@@ -882,6 +960,12 @@ async function scrapeEntryListPage() {
   if (doc.querySelector('[name="login_form"], input[type="password"]'))
     return { error: '頁面顯示登入表單，請先登入後再點「開始抓取」', _url, _title, _body }
 
+  // 花費列表頁翻頁是點連結+等頁面載入（不是自己發 fetch），沒有 HTTP status 可以直接檢查，
+  // 只能靠頁面內容判斷是不是被流量限制擋下——不檢查的話，被擋的頁面會被誤判成「沒有更多資料」
+  // 而不是「被擋」而靜默結束（見 CLAUDE.md #106）
+  if ((document.body?.innerText || '').includes('アクセスが集中'))
+    return { error: '網站流量限制，將自動重試', rateLimited: true, _url, _title, _body }
+
   const entries = []
   const seen = {}
 
@@ -912,14 +996,16 @@ async function scrapeEntryListPage() {
 
     const info = { orderNumber, appliedAt, description }
     const sm = rowText.match(/(\d+)(st|nd|rd|th)(?:シングル|SG)/)
-    const am = rowText.match(/(\d+)(st|nd|rd|th)アルバム/)
+    // 網站對專輯的顯示方式不一致，有時寫「2ndアルバム」（片假名），有時寫「2nd Album」（羅馬字），
+    // 兩種都要能辨識，否則沒對到的那種會 fallback 回傳整段原始文字（見 CLAUDE.md #103）
+    const am = rowText.match(/(\d+)(st|nd|rd|th)\s*(?:アルバム|Album)/i)
     const titleM = rowText.match(/[『「](.+?)[』」]/)
     const rm = rowText.match(/第(\d+)次/)
     if (rm) info.lotteryRound = parseInt(rm[1])
     if (sm) {
       info.singleNum = sm[1]; info.singleSuffix = sm[2]
       if (titleM) info.singleTitle = titleM[1]
-    } else if (am || /アルバム/.test(rowText)) {
+    } else if (am || /アルバム|Album/i.test(rowText)) {
       info.isAlbum = true
       if (am) { info.albumNum = am[1]; info.albumSuffix = am[2] }
       if (titleM) info.albumTitle = titleM[1]
@@ -946,6 +1032,12 @@ async function fetchEntryDetailItems(entries) {
   const parser = new DOMParser()
   function toHalf(s) {
     return (s || '').replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  }
+  // normalizeSession 是 popup.js 外層函式，但這個函式會透過 chrome.scripting.executeScript
+  // 整包序列化注入頁面獨立執行，帶不到外層作用域，所以在這裡內建一份自己的版本
+  function normalizeSession(s) {
+    if (!s) return s
+    return s.startsWith('第') ? s : '第' + s
   }
 
   function buildSingleName(info) {
@@ -983,7 +1075,7 @@ async function fetchEntryDetailItems(entries) {
       await new Promise(r => setTimeout(r, 15000))
       html = await tryFetch()
     }
-    if (html === null) return { items: [], mismatch: null }
+    if (html === null) return { id, items: [], mismatch: null, failed: true }
     const doc = parser.parseFromString(html, 'text/html')
     const aggregated = {}
 
@@ -1063,21 +1155,23 @@ async function fetchEntryDetailItems(entries) {
       ? { id, declared: declaredSubtotal, actual: actualSubtotal }
       : null
 
-    return { items, mismatch }
+    return { id, items, mismatch, failed: false }
   }
 
   const purchases = []
   const mismatches = []
+  const failedIds = []
   for (let i = 0; i < entries.length; i += CONCURRENCY) {
     const batch = entries.slice(i, i + CONCURRENCY)
     const results = await Promise.all(batch.map(fetchSingle))
     results.forEach(r => {
       purchases.push(...r.items)
       if (r.mismatch) mismatches.push(r.mismatch)
+      if (r.failed) failedIds.push(r.id)
     })
     if (i + CONCURRENCY < entries.length) await new Promise(r => setTimeout(r, 2000))
   }
-  return { purchases, mismatches }
+  return { purchases, mismatches, failedIds }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1111,6 +1205,9 @@ purchaseScrapeBtn.addEventListener('click', async () => {
 
   let totalNew = 0, totalSkipped = 0, page = 1, errorMsg = '', techError = ''
   const allMismatches = []
+  const allFailedEntries = []
+  let rateLimitRetries = 0
+  const MAX_RATE_LIMIT_RETRIES = 3
 
   try {
     const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/entry_list/*' })
@@ -1128,7 +1225,21 @@ purchaseScrapeBtn.addEventListener('click', async () => {
       })
       const listData = listResult[0]?.result
       if (!listData)      { errorMsg = '掃描失敗，請確認購入記錄頁面是否正常顯示'; techError = '掃描失敗：executeScript 回傳 null'; break }
-      if (listData.error) { errorMsg = listData.error; techError = `${listData.error} | URL:${listData._url} | title:${listData._title} | body:${listData._body}`; break }
+      if (listData.error) {
+        if (listData.rateLimited && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
+          rateLimitRetries++
+          await waitWithRetryProgress('個握花費', 12, rateLimitRetries, MAX_RATE_LIMIT_RETRIES, listData.error)
+          if (isStopping) break
+          // 花費列表頁是點連結翻頁、頁面已經載入在分頁裡，不是每次重試都會發新的 fetch，
+          // 純等待不會讓被擋的頁面內容變新鮮，要重新整理分頁才能真的重試
+          await chrome.tabs.reload(tabs[0].id)
+          await waitForTabLoad(tabs[0].id)
+          continue
+        }
+        errorMsg = listData.error; techError = `${listData.error} | URL:${listData._url} | title:${listData._title} | body:${listData._body}`
+        break
+      }
+      rateLimitRetries = 0
       if (!listData.hasMore) break
 
       allEntries.push(...listData.entries)
@@ -1176,6 +1287,9 @@ purchaseScrapeBtn.addEventListener('click', async () => {
           })
           const detailData = detailResult[0]?.result
           if (detailData?.mismatches?.length > 0) allMismatches.push(...detailData.mismatches)
+          if (detailData?.failedIds?.length > 0) {
+            allFailedEntries.push(...newEntries.filter(e => detailData.failedIds.includes(e.id)))
+          }
           if (detailData?.purchases?.length > 0) {
             const pushRes = await backendFetch(`${backendUrl}/scrape/purchases/push`, {
               method:  'POST',
@@ -1195,15 +1309,24 @@ purchaseScrapeBtn.addEventListener('click', async () => {
       }
     }
 
+    // 部分訂單多次重試後仍抓不到（通常是流量限制），併入既有的「補抓遺漏」佇列並顯示按鈕，
+    // 讓使用者一眼看到還有幾筆沒抓齊、可以直接點按鈕補（跟個握抽選同一套做法）
+    if (allFailedEntries.length > 0) {
+      const existingIds = new Set(verifyPurchaseMissingEntries.map(e => e.id))
+      allFailedEntries.forEach(e => { if (!existingIds.has(e.id)) { verifyPurchaseMissingEntries.push(e); existingIds.add(e.id) } })
+      refetchPurchaseBtn.textContent  = `補抓遺漏 (${verifyPurchaseMissingEntries.length} 筆)`
+      refetchPurchaseBtn.style.display = 'block'
+    }
+
     const elapsed = stopTimer(); hideProgress()
-    const warningMsg = buildMismatchWarning(allMismatches)
+    const warningMsg = combineWarnings(buildMismatchWarning(allMismatches), buildOrderFetchWarning(allFailedEntries, 'entry_id'))
     addLogEntry('個握花費', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, warningMsg)
     await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, techError || errorMsg, elapsed)
     chrome.tabs.update(tabs[0].id, { url: 'https://fortunemusic.jp/mypage/entry_list/' })
     if (!errorMsg && !isStopping) setPurchaseWaitingMode(false)
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('個握花費', totalNew, totalSkipped, '抓取過程發生未預期錯誤，請稍後再試', false, elapsed, buildMismatchWarning(allMismatches))
+    addLogEntry('個握花費', totalNew, totalSkipped, '抓取過程發生未預期錯誤，請稍後再試', false, elapsed, combineWarnings(buildMismatchWarning(allMismatches), buildOrderFetchWarning(allFailedEntries, 'entry_id')))
     await pushScrapeLog(backendUrl, scrapeToken, '個握花費', totalNew, totalSkipped, e.message, elapsed)
   } finally {
     purchaseScrapeBtn.disabled    = false
@@ -1233,6 +1356,8 @@ verifyBtn.addEventListener('click', async () => {
   let page = 1
   const allOrders = []
   let errorMsg = ''
+  let rateLimitRetries = 0
+  const MAX_RATE_LIMIT_RETRIES = 3
 
   try {
     while (true) {
@@ -1246,7 +1371,17 @@ verifyBtn.addEventListener('click', async () => {
       })
       const listData = listResult[0]?.result
       if (!listData)       { errorMsg = '掃描失敗，無法取得結果'; break }
-      if (listData.error)  { errorMsg = listData.error;           break }
+      if (listData.error) {
+        if (listData.rateLimited && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
+          rateLimitRetries++
+          await waitWithRetryProgress('驗證完整性', 12, rateLimitRetries, MAX_RATE_LIMIT_RETRIES, listData.error)
+          if (isStopping) break
+          continue
+        }
+        errorMsg = listData.error
+        break
+      }
+      rateLimitRetries = 0
       if (!listData.hasMore) break
 
       allOrders.push(...listData.orders)
@@ -1320,6 +1455,7 @@ refetchBtn.addEventListener('click', async () => {
   const entries    = [...verifyMissingEntries]
   const BATCH      = 4
   let totalNew = 0, totalSkipped = 0, errorMsg = '', techError = ''
+  const allFailedEntries = []
 
   try {
     for (let i = 0; i < entries.length; i += BATCH) {
@@ -1335,6 +1471,9 @@ refetchBtn.addEventListener('click', async () => {
         args:   [batch],
       })
       const detailData = detailResult[0]?.result
+      if (detailData?.failedIds?.length > 0) {
+        allFailedEntries.push(...batch.filter(o => detailData.failedIds.includes(o.id)))
+      }
       if (detailData?.records?.length > 0) {
         const pushRes = await backendFetch(`${backendUrl}/scrape/push`, {
           method:  'POST',
@@ -1349,16 +1488,18 @@ refetchBtn.addEventListener('click', async () => {
     }
 
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('補抓遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed)
+    addLogEntry('補抓遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, buildOrderFetchWarning(allFailedEntries))
     await pushScrapeLog(backendUrl, scrapeToken, '補抓遺漏', totalNew, totalSkipped, techError || errorMsg, elapsed)
 
+    // 保留這輪仍然失敗的訂單在佇列裡，而不是不管有沒有抓齊都清空——
+    // 否則使用者會誤以為已經補完，實際上那幾筆還是沒進資料庫
     if (!errorMsg && !isStopping) {
-      verifyMissingEntries    = []
-      refetchBtn.style.display = 'none'
+      verifyMissingEntries = allFailedEntries
+      if (verifyMissingEntries.length === 0) refetchBtn.style.display = 'none'
     }
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('補抓遺漏', totalNew, totalSkipped, '補抓過程發生未預期錯誤，請稍後再試', false, elapsed)
+    addLogEntry('補抓遺漏', totalNew, totalSkipped, '補抓過程發生未預期錯誤，請稍後再試', false, elapsed, buildOrderFetchWarning(allFailedEntries))
     await pushScrapeLog(backendUrl, scrapeToken, '補抓遺漏', totalNew, totalSkipped, e.message, elapsed)
   } finally {
     refetchBtn.disabled     = false
@@ -1389,6 +1530,8 @@ verifyPurchaseBtn.addEventListener('click', async () => {
   let page = 1
   const allEntries = []
   let errorMsg = ''
+  let rateLimitRetries = 0
+  const MAX_RATE_LIMIT_RETRIES = 3
 
   try {
     while (true) {
@@ -1402,7 +1545,19 @@ verifyPurchaseBtn.addEventListener('click', async () => {
       })
       const listData = listResult[0]?.result
       if (!listData)       { errorMsg = '掃描失敗，無法取得結果'; break }
-      if (listData.error)  { errorMsg = listData.error;           break }
+      if (listData.error) {
+        if (listData.rateLimited && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
+          rateLimitRetries++
+          await waitWithRetryProgress('驗證個握花費完整性', 12, rateLimitRetries, MAX_RATE_LIMIT_RETRIES, listData.error)
+          if (isStopping) break
+          await chrome.tabs.reload(tabs[0].id)
+          await waitForTabLoad(tabs[0].id)
+          continue
+        }
+        errorMsg = listData.error
+        break
+      }
+      rateLimitRetries = 0
       if (!listData.hasMore) break
 
       allEntries.push(...listData.entries)
@@ -1487,6 +1642,7 @@ refetchPurchaseBtn.addEventListener('click', async () => {
   const entries = [...verifyPurchaseMissingEntries]
   let totalNew = 0, totalSkipped = 0, errorMsg = '', techError = ''
   const allMismatches = []
+  const allFailedEntries = []
 
   try {
     for (let i = 0; i < entries.length; i++) {
@@ -1502,6 +1658,7 @@ refetchPurchaseBtn.addEventListener('click', async () => {
       })
       const detailData = detailResult[0]?.result
       if (detailData?.mismatches?.length > 0) allMismatches.push(...detailData.mismatches)
+      if (detailData?.failedIds?.includes(entries[i].id)) allFailedEntries.push(entries[i])
       if (detailData?.purchases?.length > 0) {
         const pushRes = await backendFetch(`${backendUrl}/scrape/purchases/push`, {
           method:  'POST',
@@ -1518,16 +1675,19 @@ refetchPurchaseBtn.addEventListener('click', async () => {
     }
 
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, buildMismatchWarning(allMismatches))
+    const warningMsg = combineWarnings(buildMismatchWarning(allMismatches), buildOrderFetchWarning(allFailedEntries, 'entry_id'))
+    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, warningMsg)
     await pushScrapeLog(backendUrl, scrapeToken, '補抓個握花費遺漏', totalNew, totalSkipped, techError || errorMsg)
 
+    // 保留這輪仍然失敗的訂單在佇列裡，而不是不管有沒有抓齊都清空——
+    // 否則使用者會誤以為已經補完，實際上那幾筆還是沒進資料庫（跟個握抽選同一套做法）
     if (!errorMsg && !isStopping) {
-      verifyPurchaseMissingEntries     = []
-      refetchPurchaseBtn.style.display = 'none'
+      verifyPurchaseMissingEntries = allFailedEntries
+      if (verifyPurchaseMissingEntries.length === 0) refetchPurchaseBtn.style.display = 'none'
     }
   } catch (e) {
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, '補抓過程發生未預期錯誤，請稍後再試', false, elapsed, buildMismatchWarning(allMismatches))
+    addLogEntry('補抓個握花費遺漏', totalNew, totalSkipped, '補抓過程發生未預期錯誤，請稍後再試', false, elapsed, combineWarnings(buildMismatchWarning(allMismatches), buildOrderFetchWarning(allFailedEntries, 'entry_id')))
     await pushScrapeLog(backendUrl, scrapeToken, '補抓個握花費遺漏', totalNew, totalSkipped, e.message)
   } finally {
     refetchPurchaseBtn.disabled    = false
