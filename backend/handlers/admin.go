@@ -483,6 +483,7 @@ func GetAdminSignEvents(c *gin.Context) {
 		UserEmail    string  `json:"user_email"`
 		SingleNumber int     `json:"single_number"`
 		SingleName   string  `json:"single_name"`
+		Venue        string  `json:"venue"`
 		EventDate    string  `json:"event_date"`
 		MemberName   string  `json:"member_name"`
 		AppliedCount int     `json:"applied_count"`

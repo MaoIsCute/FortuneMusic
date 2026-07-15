@@ -93,6 +93,9 @@
               <el-table-column label="單曲" min-width="320">
                 <template #default="{ row }"><span style="white-space:nowrap">{{ formatSingle(row.single_name) }}</span></template>
               </el-table-column>
+              <el-table-column label="場地" min-width="160">
+                <template #default="{ row }">{{ row.venue || '—' }}</template>
+              </el-table-column>
               <el-table-column prop="event_date" label="日期" min-width="90" />
               <el-table-column label="抽次" min-width="55">
                 <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>

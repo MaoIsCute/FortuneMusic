@@ -636,21 +636,30 @@ function onChartGroupChange() {
   applyChartFilter()
 }
 
-// 成員下拉沒選任何人 = 顯示全部（維持原本預設行為），選了才只顯示被選中的成員
+// 決定目前 legend 該顯示誰：成員下拉有選就用成員選的那幾個（最精確）；
+// 沒選成員但有選團體，退回用「該團體全部成員」當範圍（chartMemberOptions 已經是團體篩過的選項）；
+// 兩個都沒選才是真的全部顯示。原本只看 chartFilterMembers，只選團體不選成員時等於沒篩到，
+// 圖表還是畫出所有團體的成員
+function chartAllowedNames() {
+  if (chartFilterMembers.value.length > 0) return new Set(chartFilterMembers.value)
+  if (chartFilterGroup.value.length > 0) return new Set(chartMemberOptions.value.map(m => m.name))
+  return null
+}
+
 function applyChartFilter() {
+  const allowed = chartAllowedNames()
   const sel = {}
-  const hasFilter = chartFilterMembers.value.length > 0
   for (const name of Object.keys(legendSelected.value)) {
-    sel[name] = name === '全部' || !hasFilter || chartFilterMembers.value.includes(name)
+    sel[name] = name === '全部' || !allowed || allowed.has(name)
   }
   legendSelected.value = sel
 }
 
 // rows 載入後初始化所有 legend 為選取狀態
 watch(memberMap, (map) => {
-  const hasFilter = chartFilterMembers.value.length > 0
+  const allowed = chartAllowedNames()
   const sel = {}
-  for (const name of Object.keys(map)) sel[name] = !hasFilter || chartFilterMembers.value.includes(name)
+  for (const name of Object.keys(map)) sel[name] = !allowed || allowed.has(name)
   sel['全部'] = true
   legendSelected.value = sel
 }, { immediate: true })

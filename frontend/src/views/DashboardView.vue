@@ -964,20 +964,29 @@ function rOnChartGroupChange() {
   rApplyChartFilter()
 }
 
-// 成員下拉沒選任何人 = 顯示全部（維持原本預設行為），選了才只顯示被選中的成員
+// 決定目前 legend 該顯示誰：成員下拉有選就用成員選的那幾個（最精確）；
+// 沒選成員但有選團體，退回用「該團體全部成員」當範圍（rChartMemberOptions 已經是團體篩過的選項）；
+// 兩個都沒選才是真的全部顯示。原本只看 rChartFilterMembers，只選團體不選成員時等於沒篩到，
+// 圖表還是畫出所有團體的成員（見 RecordsAnalysisView.vue 同一套邏輯）
+function rChartAllowedNames() {
+  if (rChartFilterMembers.value.length > 0) return new Set(rChartFilterMembers.value)
+  if (rChartFilterGroup.value.length > 0) return new Set(rChartMemberOptions.value.map(m => m.name))
+  return null
+}
+
 function rApplyChartFilter() {
+  const allowed = rChartAllowedNames()
   const sel = {}
-  const hasFilter = rChartFilterMembers.value.length > 0
   for (const name of Object.keys(rLegendSelected.value)) {
-    sel[name] = name === '全部' || !hasFilter || rChartFilterMembers.value.includes(name)
+    sel[name] = name === '全部' || !allowed || allowed.has(name)
   }
   rLegendSelected.value = sel
 }
 
 watch(rMemberMap, (map) => {
-  const hasFilter = rChartFilterMembers.value.length > 0
+  const allowed = rChartAllowedNames()
   const sel = {}
-  for (const name of Object.keys(map)) sel[name] = !hasFilter || rChartFilterMembers.value.includes(name)
+  for (const name of Object.keys(map)) sel[name] = !allowed || allowed.has(name)
   sel['全部'] = true
   rLegendSelected.value = sel
 }, { immediate: true })

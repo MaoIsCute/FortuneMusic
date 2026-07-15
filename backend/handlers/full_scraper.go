@@ -81,16 +81,36 @@ func PushFullRecords(c *gin.Context) {
 	for _, r := range req.Records {
 		if strings.Contains(r.OrderID, "_sign") {
 			if existing, ok := signMap[r.OrderID]; ok {
-				if existing.AppliedCount != r.AppliedCount || existing.WonCount != r.WonCount {
-					db.DB.Model(existing).Updates(map[string]any{
-						"applied_count": r.AppliedCount,
-						"won_count":     r.WonCount,
-					})
+				changed := map[string]any{}
+				if existing.AppliedCount != r.AppliedCount {
+					changed["applied_count"] = r.AppliedCount
+				}
+				if existing.WonCount != r.WonCount {
+					changed["won_count"] = r.WonCount
+				}
+				// 簽名會場地資訊是否存在看 prizeInfo.date 有沒有帶 @場地——新版有帶，parseFullApiResults
+				// 解析出來的 r.Venue 直接可用；舊版沒帶，r.Venue 會是空字串，才需要退回跟全握同一套
+				// venueMap（group+單曲號+日期）反推，兩種都要接住，優先順序要跟新建那邊一致
+				if existing.Venue == "" {
+					candidate := r.Venue
+					if candidate == "" {
+						candidate = venueMap[venueKey{Group: existing.Group, SingleNumber: existing.SingleNumber, EventDate: existing.EventDate}]
+					}
+					if candidate != "" {
+						changed["venue"] = candidate
+					}
+				}
+				if len(changed) > 0 {
+					db.DB.Model(existing).Updates(changed)
 					updated++
 				} else {
 					skipped++
 				}
 				continue
+			}
+			venue := r.Venue
+			if venue == "" {
+				venue = venueMap[venueKey{Group: r.Group, SingleNumber: r.SingleNumber, EventDate: r.EventDate}]
 			}
 			newSigns[r.OrderID] = models.SignEvent{
 				UserID:       user.ID,
@@ -98,6 +118,7 @@ func PushFullRecords(c *gin.Context) {
 				Group:        r.Group,
 				SingleNumber: r.SingleNumber,
 				SingleName:   r.SingleName,
+				Venue:        venue,
 				EventDate:    r.EventDate,
 				MemberName:   normalizeMember(r.MemberName),
 				AppliedCount: r.AppliedCount,
