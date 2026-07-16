@@ -180,11 +180,13 @@ function rateClass(rate) {
   return 'rate low'
 }
 
+// 這個列表欄寬有限，單曲欄只顯示「N單」不帶書名號標題（跟個握紀錄等其他頁面不同，
+// 那些欄位夠寬會保留完整標題）——正則後面加 .* 把標題整段吃掉一起換成短格式
 function formatSingle(name) {
   if (!name) return ''
   return name
-    .replace(/(\d+)(?:st|nd|rd|th)シングル/, (_, n) => `${n}單`)
-    .replace(/(\d+)(?:st|nd|rd|th)アルバム/, (_, n) => `${n}專`)
+    .replace(/(\d+)(?:st|nd|rd|th)シングル.*/, (_, n) => `${n}單`)
+    .replace(/(\d+)(?:st|nd|rd|th)アルバム.*/, (_, n) => `${n}專`)
 }
 </script>
 

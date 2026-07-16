@@ -45,6 +45,19 @@ func PushFullRecords(c *gin.Context) {
 
 	now := time.Now()
 	venueMap := loadVenueMap()
+	titleMaps := loadTitleMap()
+	// 全握/簽名會的 single_name 原本只是擴充功能端拿「目前掃描到第幾張單曲頁」湊出的空白模板
+	// （例："17thシングル"，不含書名號標題），從來沒有查過 titles 表——個握/花費（PushRecords/
+	// PushPurchases）早就有這個查表邏輯，全握這邊漏掉了。只處理單曲（single_number > 0），
+	// 全握目前的抓取方式是照單曲編號逐頁掃描，不會有專輯（single_number = 0）的情況
+	resolveSingleName := func(group string, singleNumber int, fallback string) string {
+		if singleNumber > 0 {
+			if corrected, ok := titleMaps.Singles[titleKey{Group: group, SingleNumber: singleNumber}]; ok {
+				return corrected
+			}
+		}
+		return fallback
+	}
 
 	// 先依 order_id 分流，批次查出已存在的記錄，避免在迴圈中逐筆查詢
 	var signIDs, fullIDs []string
@@ -88,6 +101,9 @@ func PushFullRecords(c *gin.Context) {
 				if existing.WonCount != r.WonCount {
 					changed["won_count"] = r.WonCount
 				}
+				if correctedName := resolveSingleName(existing.Group, existing.SingleNumber, r.SingleName); existing.SingleName != correctedName {
+					changed["single_name"] = correctedName
+				}
 				// 簽名會場地資訊是否存在看 prizeInfo.date 有沒有帶 @場地——新版有帶，parseFullApiResults
 				// 解析出來的 r.Venue 直接可用；舊版沒帶，r.Venue 會是空字串，才需要退回跟全握同一套
 				// venueMap（group+單曲號+日期）反推，兩種都要接住，優先順序要跟新建那邊一致
@@ -117,7 +133,7 @@ func PushFullRecords(c *gin.Context) {
 				OrderID:      r.OrderID,
 				Group:        r.Group,
 				SingleNumber: r.SingleNumber,
-				SingleName:   r.SingleName,
+				SingleName:   resolveSingleName(r.Group, r.SingleNumber, r.SingleName),
 				Venue:        venue,
 				EventDate:    r.EventDate,
 				MemberName:   normalizeMember(r.MemberName),
@@ -137,8 +153,8 @@ func PushFullRecords(c *gin.Context) {
 			if existing.WonCount != r.WonCount {
 				changed["won_count"] = r.WonCount
 			}
-			if existing.SingleName == "" && r.SingleName != "" {
-				changed["single_name"] = r.SingleName
+			if correctedName := resolveSingleName(existing.Group, existing.SingleNumber, r.SingleName); existing.SingleName != correctedName {
+				changed["single_name"] = correctedName
 			}
 			if existing.Venue == "" && existing.EventType == "実体" {
 				candidate := r.Venue
