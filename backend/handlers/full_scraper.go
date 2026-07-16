@@ -106,8 +106,9 @@ func PushFullRecords(c *gin.Context) {
 				}
 				// 簽名會場地資訊是否存在看 prizeInfo.date 有沒有帶 @場地——新版有帶，parseFullApiResults
 				// 解析出來的 r.Venue 直接可用；舊版沒帶，r.Venue 會是空字串，才需要退回跟全握同一套
-				// venueMap（group+單曲號+日期）反推，兩種都要接住，優先順序要跟新建那邊一致
-				if existing.Venue == "" {
+				// venueMap（group+單曲號+日期）反推，兩種都要接住，優先順序要跟新建那邊一致；
+				// 線上場次（event_type != 実体）本來就沒有場地，不進這個 if（見 #121）
+				if existing.Venue == "" && existing.EventType == "実体" {
 					candidate := r.Venue
 					if candidate == "" {
 						candidate = venueMap[venueKey{Group: existing.Group, SingleNumber: existing.SingleNumber, EventDate: existing.EventDate}]
@@ -125,7 +126,7 @@ func PushFullRecords(c *gin.Context) {
 				continue
 			}
 			venue := r.Venue
-			if venue == "" {
+			if venue == "" && r.EventType == "実体" {
 				venue = venueMap[venueKey{Group: r.Group, SingleNumber: r.SingleNumber, EventDate: r.EventDate}]
 			}
 			newSigns[r.OrderID] = models.SignEvent{
@@ -134,6 +135,7 @@ func PushFullRecords(c *gin.Context) {
 				Group:        r.Group,
 				SingleNumber: r.SingleNumber,
 				SingleName:   resolveSingleName(r.Group, r.SingleNumber, r.SingleName),
+				EventType:    r.EventType,
 				Venue:        venue,
 				EventDate:    r.EventDate,
 				MemberName:   normalizeMember(r.MemberName),

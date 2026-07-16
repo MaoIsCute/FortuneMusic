@@ -9,6 +9,7 @@ type SignEvent struct {
 	Group        string    `json:"group"`
 	SingleNumber int       `json:"single_number"`
 	SingleName   string    `json:"single_name"`
+	EventType    string    `json:"event_type"`
 	Venue        string    `json:"venue"`
 	EventDate    string    `json:"event_date"`
 	MemberName   string    `json:"member_name"`

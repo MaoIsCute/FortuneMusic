@@ -738,13 +738,14 @@ func GetVenueIssues(c *gin.Context) {
 		})
 	}
 
-	// 簽名會（SignEvent）沒有 event_type 欄位——簽名會本身一定是実体活動，不需要像全握那樣篩 event_type，
-	// 場地空白一樣要列進問題列表，跟全握共用同一套 venueMap 反推建議值；同一個 (group, single_number,
-	// event_date) 如果全握那邊已經列過，直接把筆數併進去，不要讓管理者看到同一個場次出現兩列
+	// 簽名會（SignEvent）跟全握一樣有 event_type（見 #121），線上場次本來就沒有場地，
+	// 只有実体場次的場地空白才算問題；場地空白一樣要列進問題列表，跟全握共用同一套 venueMap
+	// 反推建議值；同一個 (group, single_number, event_date) 如果全握那邊已經列過，直接把筆數
+	// 併進去，不要讓管理者看到同一個場次出現兩列
 	var signBlanks []blankRow
 	db.DB.Model(&models.SignEvent{}).
 		Select(`"group", single_number, single_name, event_date, COUNT(*) as count`).
-		Where(`venue IS NULL OR venue = ''`).
+		Where(`event_type = '実体' AND (venue IS NULL OR venue = '')`).
 		Group(`"group", single_number, single_name, event_date`).
 		Scan(&signBlanks)
 	for _, r := range signBlanks {
@@ -851,9 +852,10 @@ func FixVenue(c *gin.Context) {
 		Where(`"group" = ? AND single_number = ? AND event_date = ? AND event_type = '実体' AND (venue IS NULL OR venue != ?)`,
 			req.Group, req.SingleNumber, req.EventDate, req.Venue).
 		Update("venue", req.Venue).RowsAffected
-	// 簽名會場次跟全握共用同一個 (group, single_number, event_date)，一起回填（見 #119）
+	// 簽名會場次跟全握共用同一個 (group, single_number, event_date)，一起回填（見 #119）；
+	// 線上場次不該被塞進場地，一樣加 event_type = '実体' 限制（見 #121）
 	updated += db.DB.Model(&models.SignEvent{}).
-		Where(`"group" = ? AND single_number = ? AND event_date = ? AND (venue IS NULL OR venue != ?)`,
+		Where(`"group" = ? AND single_number = ? AND event_date = ? AND event_type = '実体' AND (venue IS NULL OR venue != ?)`,
 			req.Group, req.SingleNumber, req.EventDate, req.Venue).
 		Update("venue", req.Venue).RowsAffected
 
@@ -897,9 +899,10 @@ func BulkSetVenues(c *gin.Context) {
 				v.Group, v.SingleNumber, v.EventDate, v.Venue).
 			Update("venue", v.Venue)
 		updated += result.RowsAffected
-		// 簽名會場次跟全握共用同一個 (group, single_number, event_date)，一起回填（見 #119）
+		// 簽名會場次跟全握共用同一個 (group, single_number, event_date)，一起回填（見 #119）；
+		// 線上場次不該被塞進場地，一樣加 event_type = '実体' 限制（見 #121）
 		signResult := db.DB.Model(&models.SignEvent{}).
-			Where(`"group" = ? AND single_number = ? AND event_date = ? AND (venue IS NULL OR venue != ?)`,
+			Where(`"group" = ? AND single_number = ? AND event_date = ? AND event_type = '実体' AND (venue IS NULL OR venue != ?)`,
 				v.Group, v.SingleNumber, v.EventDate, v.Venue).
 			Update("venue", v.Venue)
 		updated += signResult.RowsAffected

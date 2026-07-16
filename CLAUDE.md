@@ -625,3 +625,8 @@ ADMIN_EMAIL=...
     - 只處理單曲（`single_number > 0`）：全握目前的抓取方式是照單曲編號逐頁掃描（`/nogizaka46/{N}th#/history`），不會有專輯（`single_number = 0`）的情況，不用另外處理 `titleMaps.Albums`
     - 直接查資料庫驗證過：現有 7 筆簽名會全部都能在 `titles` 表查到登記值（例：`34thシングル` → `34thシングル『Monopoly』`），確認查表邏輯會生效
     - 前端配合：`FullView.vue`「全握紀錄」欄寬有限，`formatSingle()` 正則加上 `.*` 把標題整段吃掉、只留短格式「N單」，維持原本的簡短顯示；`FullAnalysisView.vue`（成員詳細分析）、`AdminSignEventsView.vue`、`FullSignEventsView.vue` 原本就是不截斷的標準版 `formatSingle()`，不用改，資料補上標題後會自動顯示完整名稱（跟個握紀錄一致）
+121. 使用者提到「以前的簽名會有線上形式」，問要不要把舊資料的 `venue` 手動改寫成「線上」文字——不建議，`venue` 欄位若混用「真實地點」跟「代表沒有地點的標記文字」會造成語意混亂（跟 #110 中文格式混進 `single_name` 欄位是同一類問題）。查證後確認 `prizeInfo.event`（例：「...発売記念**リアル**サイン会」）本來就含有「リアル」關鍵字，`parseFullApiResults()` 對每一筆資料都會用同一套判斷式算出 `event_type`（`実体`/`線上`，跟全握判斷邏輯共用），這個欄位也已經包含在送到後端的 payload 裡——只是 `SignEvent` model 沒有對應欄位接住，資料本來就有，純粹是後端漏接，**擴充功能不用改**。
+    - `models/sign_event.go` 加 `EventType` 欄位
+    - `PushFullRecords` 新建 `SignEvent` 時存 `r.EventType`；場地相關的 fallback 邏輯（`r.Venue` 優先、`venueMap` 反推備援，見 #117/#118）改成只在 `event_type = '実体'` 時才進行，線上場次維持場地空白（正確表示「沒有場地」，不是資料缺漏）；比照 `FullRecord`，`EventType` 只在新建時寫入，既有列更新不回填（活動類型理論上不會事後改變）
+    - `GetVenueIssues`（#119 新增的簽名會空場地掃描）、`FixVenue`、`BulkSetVenues` 三處的 `sign_events` 查詢/更新條件都加上 `event_type = '実体'`，比照全握的做法，線上場次不會被誤判成「缺場地」，也不會被意外塞進場地文字
+    - **注意**：既有的 7 筆簽名會資料目前 `event_type` 都是空字串（新欄位預設值），要等下次同一批資料被重新 push 過一次，才會被分類成実体/線上並套用上面這些條件——這之前，「缺少場地」問題列表暫時看不到這幾筆（因為 `event_type = '実体'` 對空字串不成立），不是走 regression，是資料還沒補齊分類前的正常過渡狀態
