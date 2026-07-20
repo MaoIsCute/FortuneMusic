@@ -1,6 +1,7 @@
 <template>
   <div class="page">
     <h1 class="page-title">📊 全握分析</h1>
+    <p class="page-subtitle">顯示你自己同步過的全握成績</p>
 
     <!-- 整體統計 -->
     <div class="stats-grid">
@@ -405,6 +406,9 @@ function formatSingle(name) {
 <style scoped>
 .page { background: #f5f7fa; min-height: 100vh; }
 :deep(.el-table .cell) { white-space: nowrap; }
+.page-title    { margin-bottom: 4px; }
+.page-subtitle { color: #888; font-size: 13px; margin: 0 0 20px; }
+html.dark .page-subtitle { color: #9aa3b5; }
 
 .stats-grid {
   display: flex;

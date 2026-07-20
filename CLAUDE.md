@@ -23,6 +23,23 @@
   - 三者互相獨立，不需強制同步（但 `manifest.json`／`status.json` 的 `latest_extension_version`／`MinExtensionVersion` 這幾個一定要一起改成同一個數字）
   - **版本號進位陷阱**：版本比對是用 `parseFloat`/`strconv.ParseFloat` 把版本字串當數字比較，小數點後只能到 9——如果照 +0.1 的慣例從 1.9 bump 成 "1.10"，會被解析成 1.1（比 1.9 還小！）整個比較邏輯會壞掉。小數點後到 9 之後，下一版要跳整數（1.9 → 2.0），不能繼續 +0.1。
 
+## 本機後端重啟規則
+
+- 只要這次改動有碰到 `backend/` 底下任何檔案（handler、model、`db.go` 的遷移邏輯等），**改完就自己重啟本機後端，不用等使用者說「已經重啟了」**。前端 Vite dev server 有 HMR 不用管，只有後端 `go run .` 需要手動重啟才會吃到新程式碼。
+- 重啟步驟：
+  1. 找出目前佔用 8080 port 的 process：`netstat -ano | grep ":8080" | grep LISTENING`，記下最後一欄的 PID
+  2. 用 PowerShell 的 `Stop-Process -Id <pid> -Force` 停掉——`go run .` 實際上是「`go.exe run .`」父行程再 fork 一個編譯後的暫存執行檔子行程，兩層都可能各自佔用 port，如果單殺一個沒生效，用 `Get-CimInstance Win32_Process -Filter "ProcessId=<pid>"` 查 `ParentProcessId` 把父行程也一起停掉
+  3. 重啟：`cd backend && go run .`，**一定要用 Bash 工具的 `run_in_background: true` 直接跑這個指令本身**（讓工具原生管理這個背景行程），不要自己用 `(... &)` 這種手動 detach 的寫法另外背景化——那樣開出來的行程沒有被工具追蹤存活，這個 session 內親身踩過一次：手動 detach 的第一個行程在 3 秒內看似沒啟動成功（`netstat` 檢查太早、當下 go build 還沒編譯完），因此又重複執行了第二次，導致兩個行程搶 8080 port、其中一個直接因為 bind 失敗而結束
+  4. 重啟後至少等 2-3 秒（`go run` 要重新編譯），再用 `netstat` 確認新 PID 有在 listen，讀 Bash 工具回傳的 output file 確認 log 裡沒有 `[ERROR] listen tcp :8080: bind:` 這種埠號衝突錯誤
+  5. 如果這次改動包含 `db.go` 裡的遷移邏輯，重啟後直接查資料庫驗證遷移真的跑過（不要只看 log 打勾就假設成功），比照下方「用臨時 Go 腳本直接查資料庫」的做法直接對資料庫下 SELECT 確認
+
+## 用臨時 Go 腳本直接查資料庫
+
+專案沒有另外接 psql 或其他 DB client 工具，需要直接對 Supabase 資料庫下 SQL（唯讀驗證、或本來就打算讓使用者確認過內容再寫入的一次性資料操作）時，做法是在 `backend/cmd/<隨便取的名字>/main.go` 建一個小的 `package main`，複用 `backend` 這個 Go module 既有的 `github.com/joho/godotenv`（讀 `.env` 的 `DATABASE_URL`）、`gorm.io/driver/postgres`、`gorm.io/gorm` 這幾個現成依賴直接連線（範例骨架：`godotenv.Load()` → `gorm.Open(postgres.Open(os.Getenv("DATABASE_URL")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})` → 下 `db.Raw(...).Scan(&rows)` 或 `db.Exec(...)`），跑完用 `go run ./cmd/<名字>` 執行、看完結果後**整個資料夾刪掉**，不要留在 repo 裡（不是專案的一部分，純粹是這次操作用的暫時腳本）。
+
+- 唯讀查詢：直接查完看結果就好
+- 會寫入/刪除資料的操作：**先跑一個唯讀版本 dry-run**（例如只 `SELECT` 出「這個條件會影響幾筆、轉換前後長怎樣」，不要一開始就下 `UPDATE`/`DELETE`），確認影響範圍、轉換結果、有沒有意料外的撞鍵/衝突之後，才真的執行會改資料的版本——這個 session 修 `event_date` 補零遷移時就是這樣先 dry-run 三次（轉換結果對不對、`purchases.item_key` 會不會撞鍵、`venues` 的 unique index 會不會撞鍵）才動手寫 migration，抓到了本來會需要事後補救的邊界情況
+
 ## 專案結構
 
 ```
@@ -69,7 +86,6 @@ fortunemusic/
 │   │   └── views/
 │   │       ├── LoginView.vue
 │   │       ├── AuthCallbackView.vue  # 用 code 換 JWT + refresh token，並靜默觸發擴充功能連結
-│   │       ├── SetupView.vue         # 擴充功能未安裝時的三步驟安裝引導
 │   │       ├── DashboardView.vue
 │   │       ├── MemberView.vue
 │   │       ├── RecordsView.vue       # 個握紀錄列表
@@ -160,7 +176,6 @@ fortunemusic/
 |---|---|---|
 | `/` | 登入頁 | 公開 |
 | `/auth/callback` | Google OAuth 回調頁 | 公開 |
-| `/setup` | 擴充功能安裝引導（三步驟） | 需登入 |
 | `/dashboard` | 主畫面（統計總覽） | 需登入，會觸發 data store check() |
 | `/member/:name` | 個別成員統計 | 需登入 |
 | `/records` | 個握紀錄列表 | 需登入，會觸發 data store check() |
@@ -170,7 +185,7 @@ fortunemusic/
 | `/full/spending` | 全握花費（建設中） | 需登入 |
 | `/full/analysis` | 全握分析（總覽/類型/成員/成員詳細） | 需登入 |
 | `/full/sign-events` | 個人簽名會紀錄 | 需登入 |
-| `/scrape` | 爬蟲頁 | 需登入 |
+| `/scrape` | 同步工具設定（`?firstTime=1` 時主動展開安裝步驟，見 #124） | 需登入 |
 | `/admin` | redirect → `/admin/users` | 需登入 + 管理者 |
 | `/admin/users` | 使用者管理（模擬畫面） | 需登入 + 管理者 |
 | `/admin/maintenance` | 刪除資料(預覽) + 抓取紀錄 | 需登入 + 管理者 |
@@ -222,8 +237,8 @@ LoginView → GET http://localhost:8080/auth/google
 首次設定（一鍵連結）：
 1. 以 Google 帳號登入網站
 2. 登入後自動嘗試連結擴充功能（`AuthCallbackView` 靜默發送 `FORTUNE_SETUP`）
-3. 若擴充功能未安裝 → 導向 `/setup` 顯示三步驟安裝引導
-4. 安裝完成後點「連結帳號」按鈕即完成，不需手動複製 ScrapeToken
+3. 若擴充功能未安裝，進「個握分析」（`RecordsAnalysisView.vue`）時偵測不到會導向 `/scrape?firstTime=1`，主動展開安裝步驟（見 #124，原本是導去獨立的 `/setup` 頁面，已整併掉）
+4. 安裝完成後點「連結同步工具」按鈕即完成，不需手動複製 ScrapeToken
 
 使用方式 — 個握（兩步驟）：
 1. 點「同步」→ 自動開啟 `fortunemusic.jp/mypage/apply_list/` 分頁
@@ -630,3 +645,39 @@ ADMIN_EMAIL=...
     - `PushFullRecords` 新建 `SignEvent` 時存 `r.EventType`；場地相關的 fallback 邏輯（`r.Venue` 優先、`venueMap` 反推備援，見 #117/#118）改成只在 `event_type = '実体'` 時才進行，線上場次維持場地空白（正確表示「沒有場地」，不是資料缺漏）；比照 `FullRecord`，`EventType` 只在新建時寫入，既有列更新不回填（活動類型理論上不會事後改變）
     - `GetVenueIssues`（#119 新增的簽名會空場地掃描）、`FixVenue`、`BulkSetVenues` 三處的 `sign_events` 查詢/更新條件都加上 `event_type = '実体'`，比照全握的做法，線上場次不會被誤判成「缺場地」，也不會被意外塞進場地文字
     - **注意**：既有的 7 筆簽名會資料目前 `event_type` 都是空字串（新欄位預設值），要等下次同一批資料被重新 push 過一次，才會被分類成実体/線上並套用上面這些條件——這之前，「缺少場地」問題列表暫時看不到這幾筆（因為 `event_type = '実体'` 對空字串不成立），不是走 regression，是資料還沒補齊分類前的正常過渡狀態
+122. 請 Claude 以使用者角度通讀前端找易用性問題，挑其中兩項動手修：
+    - **深色模式大範圍是壞的**：一開始以為只有 `FullView`/`FullAnalysisView`/`FullSignEventsView`/`MemberView`/五個管理頁面沒做深色模式，但實際切換測試後發現連原本以為「有做好」的 `DashboardView`/`RecordsAnalysisView` 也是壞的——根因是**每個頁面元件各自寫死 `.page { background: #f5f7fa }`**（淺色），從來沒有對應的 `html.dark` 覆寫；`.page-title`（`App.vue` 全域定義，沒設 `color`）繼承 `body` 的深色模式字色（淺色字），疊在沒被覆寫、依然是淺色的 `.page` 背景上，變成淺字疊淺底，標題幾乎看不見。這是全站通用的問題，不是個別頁面各自漏做。
+    - 修法：`App.vue` 全域加一行 `html.dark .page { background: #1a1a2e; }`，一次修掉所有頁面的標題可視性問題，不用每個頁面各自複製貼上；另外 `FullView.vue`/`FullSignEventsView.vue`/`AdminUsersView.vue`/`AdminSignEventsView.vue` 四個檔案的 `.card` 卡片背景本身也是寫死白色、沒有深色覆寫，個別補上；額外發現 `NavBar.vue` 的自訂下拉選單（`.nav-menu`，「個握 ▾」「全握 ▾」「管理 ▾」共用，不是 el-dropdown，見已修正問題較早的說明）完全沒做深色模式，選單彈出來是刺眼白底，原本不在盤點範圍內但太顯眼一併修了。用瀏覽器實際切換深色模式逐頁驗證過（Dashboard、全握紀錄、使用者管理、簽名會紀錄、導覽列下拉選單）。
+    - **「全握花費」空白頁面**：`FullSpendingView.vue` 原本只有一行「建設中」，改成跟 `EmptyState.vue` 同款卡片式版面；使用者確認後精簡成只留標題「全握花費功能尚未開放」，不需要額外說明原因。
+123. 使用者問「抽選紀錄」排序為什麼看起來是亂的（例：日期 7/5、7/19、6/7、6/28 這樣跳），追查後確認是**個握**（`/records`，`RecordsView.vue`／`GetRecords`）而非全握——根因：`event_date` 在 `records`/`full_records`/`purchases`/`sign_events`/`venues` 五張表都存成**純字串**、月日不補零（例：`"2026/7/5"`），`ORDER BY event_date DESC` 是逐字元字串比較，不是真的日期先後比較——`"2026/7/5"` 因為第 8 個字元 `5` 比 `"2026/7/19"` 的第 8 個字元 `1` 大，字串排序會排在前面，造成同一個月裡個位數日跟兩位數日的順序整個錯亂。全握（`GetFullRecords`）用同一種 `event_date DESC` 排序、同一種未補零字串格式，理論上有一模一樣的問題。
+    - 討論了要不要乾脆把 `event_date` 換成真正的 Postgres `DATE` 型別（比照 `titles.release_date` 已經是這樣做），但評估後放棄：換型別要動五個 model、所有用 `event_date` 精確比對的地方（場地/標題查表的 group+單曲號+日期 key）、後端回傳給前端的 JSON 序列化格式（`time.Time` 預設格式不是前端現在期待的 `"2026/7/5"` 文字），影響面太大。改採**補零字串**（"YYYY/M/D" → "YYYY/MM/DD"）：型別不變、比對方式不變、前端顯示不用改，補零後字串排序恰好等於日期先後順序（跟 ISO 8601 同樣道理），範圍篩選（`>=`/`<=`）也會一併修正，不用額外用 `TO_DATE()` 轉換。
+    - `admin.go` 新增 `normalizeEventDate(s string) string`：分割成三段、驗證都是數字、用 `%04d/%02d/%02d` 重組；格式不符合預期就原樣傳回，不強行處理成 `0000/00/00` 這種壞資料。
+    - `PushRecords`/`PushFullRecords`/`PushPurchases` 三個寫入端點都在收到 payload 後、開始處理前，先整批把 `EventDate` 正規化（`for i := range req.Records { req.Records[i].EventDate = normalizeEventDate(...) }`），而不是在個別使用的地方各自呼叫——`PushFullRecords` 同一筆資料的 `EventDate` 會被用在好幾個地方（`venueMap` 查表 key、`FullRecord`/`SignEvent` 欄位賦值），統一在迴圈最前面做一次最不容易漏掉某個使用點。
+    - **`purchases.item_key` 是特別要注意的地方**：這個欄位是 `entry_id:member_name:event_date:session` 組出來的去重鍵，本身就存進資料庫、不是即時算的——如果只改 `PushPurchases` 寫入新資料時的補零邏輯，新算出來的 `item_key` 會跟資料庫裡舊的（未補零）`item_key` 對不上，同一筆資料會被誤判成從沒出現過、重複寫入一次。修正時要連資料庫既有的 `item_key` 一起回填重算，不能只改 `event_date` 欄位本身。
+    - `db.go` 新增一次性冪等遷移：`records`/`full_records`/`sign_events`/`venues` 四張表用 `TO_CHAR(TO_DATE(event_date,'YYYY/MM/DD'),'YYYY/MM/DD')` 回填補零（`TO_DATE` 對沒補零的月日輸入本來就容錯，可以直接餵原始字串）；`purchases` 額外在同一個 `UPDATE` 裡把 `item_key` 用回填後的日期重新組一次，兩個欄位在同一個 SQL 敘述裡從同一個舊值算出來，不會有中間態不一致的問題；`WHERE` 條件用正規表達式限定「看起來像日期格式、但還沒補零」，冪等、不會重複處理已經補過的資料，格式完全不像日期的異常值也會被排除、不會讓 `TO_DATE` 噴錯中斷整個遷移。
+    - 執行遷移前寫了三個唯讀 dry-run 腳本直接對資料庫驗證過：(1) 確認補零轉換結果正確（例如 `"2019/8/10"` → `"2019/08/10"`，五張表共 667+127+408+6+17 筆會被改動）、(2) 確認 `purchases` 補零後不會有 `item_key` 撞鍵、(3) 確認 `venues` 補零後 (group, single_number, event_date) 這組 unique index 不會撞鍵——都沒問題，migration 在下次後端重啟時執行是安全的。
+    - 這次順便把「使用者要求時要自己重啟後端」這條規則寫進 CLAUDE.md（見「本機後端重啟規則」章節），重啟後直接查資料庫（五張表都是 0 筆還沒補零）+ 瀏覽器實際看「抽選紀錄」（日期變成 `2026/08/09` → `2026/08/08` → `2026/07/19` 這種正確排序）雙重驗證過。
+124. 使用者 review 提到「建立/連結擴充功能有兩套幾乎重複的流程」（`/setup` 跟 `/scrape`），討論後決定整併掉，只保留一個頁面：
+    - 根因：`/setup`（`SetupView.vue`）**唯一的入口**是 `RecordsAnalysisView.vue`（個握分析）偵測到瀏覽器沒裝擴充功能時自動 `router.replace('/setup')`，畫面是「歡迎使用 Fortune Tracker」的全新使用者引導卡，主動列出 3 步驟；`/scrape`（`ScrapeView.vue`，NavBar「同步工具」永久連結）內容幾乎一樣（下載連結、安裝步驟、連結帳號），但是被動的——先讓使用者點「連結同步工具」試一次，失敗了才顯示安裝步驟。兩邊沒有互相連結，如果使用者手動打 `/setup` 這個網址（舊書籤等），會看到一個「歡迎」畫面，即使早就設定過同步工具也看不出來，容易誤以為要重新設定
+    - 修正：`RecordsAnalysisView.vue` 兩處導向改成 `router.replace('/scrape?firstTime=1')`；`ScrapeView.vue` 新增 `firstTime`（`computed(() => route.query.firstTime === '1')`），為 true 時把原本只在 `statusType === 'error'` 才顯示的安裝步驟區塊改成主動展開（`v-if="statusType === 'error' || firstTime"`），並把上方說明文字換成「目前還沒有任何抽選資料，請先安裝同步工具...」這種首次引導語氣，不用先讓使用者點過一次失敗才看得到步驟
+    - 整個刪除 `SetupView.vue`、`router/index.js` 的 `/setup` 路由；先 grep 全專案確認沒有其他地方連到 `/setup`（唯一的兩個入口都已經改掉）；舊書籤/直接打 `/setup` 網址會落到既有的 `/:pathMatch(.*)*` catch-all，導去 `/dashboard`，不會變成 404
+    - 用瀏覽器實際驗證過三種情境：`/scrape` 無參數維持原本反應式流程、`/scrape?firstTime=1` 主動展開安裝步驟、`/setup` 正確導向 `/dashboard`
+125. `FullView.vue`（全握紀錄）的單曲下拉跟 `RecordsView.vue` 在 #113 修過的是同一種 bug，只是沒跟著改：`<el-option>` 的 `:value` 是純數字 `s.single_number`，不是團體+編號的組合，`fetchPage()` 送出的 `single_number` 參數也是純數字。後端 `GetFullRecords` 的 `group`／`single_number` 是各自獨立的 `WHERE` 條件，只送單曲號、沒選團體時，會跨團體撈到同編號的其他團體資料。
+    - 修正：`:value` 改成 `` `${s.group}:${s.single_number}` `` 組合字串（`:key` 本來就已經是這個格式，只有 `:value` 沒跟著改），`fetchPage()` 收到後 `split(':')` 拆開，`group`／`single_number` 兩個參數都送給後端，不管使用者有沒有另外選團體下拉都會正確帶團體
+    - 用瀏覽器實際測試過：不選團體、只選「34單」（乃木坂46），結果全部都是乃木坂46的資料；只選「7單」（日向坂46），結果只有 1 筆、正確是日向坂46的資料，沒有跨團體混資料
+126. 排查 #125 附帶發現「選擇成員」下拉也是同一類風險（`RecordsView.vue`／`FullView.vue` 的成員篩選 `WHERE member_name = ?` 跟 `group` 各自獨立），順便一起處理：
+    - 先查證影響範圍：`utils/members.js` 目前三個團體共 202 名成員，寫小腳本比對過，**沒有任何漢字名字重複**，現在不會真的發生混資料，是防未來新人撞名的預防性修正，不是修一個已知會發生的 bug
+    - `RecordsView.vue`、`FullView.vue` 的成員下拉 `:value` 一樣從純名字 `m.name` 改成 `` `${m.group}:${m.name}` `` 組合字串，`fetchPage()` 拆開後 `group`／`member` 兩個參數一起送給後端，做法跟 #125 完全一致
+    - **`RecordsAnalysisView.vue`／`DashboardView.vue` 的成員手風琴/圖表評估後決定先不做**：這兩處是用 `memberMap`/`rMemberMap`（純 `member_name` 字串當 JS 物件 key）在**前端**彙總資料，不是查詢層級的問題，如果真的撞名，兩人的應募/中選數字會被加總合併成一筆、另一個人從畫面上完全消失，且沒有任何提示看得出來——比查詢層級的問題更隱蔽，但修正代價高很多：`memberMap` 的 key 被圖表 legend 顯示名稱、`el-collapse` 手風琴迭代、排序等一大串下游邏輯直接當成人名字串使用，要改的話這些地方要全部跟著調整，而且這套邏輯在 `DashboardView.vue` 還有一份幾乎一樣的複製（`rMemberMap`，見 #89），這個 session 也才剛動過 #116 改過同一段。因為目前 100% 不會撞名，先不做這塊，之後真的撞名了再改——**這個修正是純前端計算邏輯，不涉及資料庫寫入，屆時只要改 `computed()` 裡的 key 邏輯、重新整理頁面立刻生效，不需要任何資料遷移或重抓**
+127. `FullView.vue` 補上 `EmptyState`/`ErrorState`，原本完全沒有——資料是空的或 API 掛掉都只會看到一個空表格，沒有任何提示，跟 `RecordsView.vue`/`SpendingView.vue` 這些已經有處理的頁面不一致。
+    - 沒有沿用 `stores/data.js` 的 `dataStore.hasData`：那個是靠 `GET /api/stats`（個握整體統計）判斷的，跟全握是完全不同的資料來源，`FullView` 的路由（`Full`）本來就不在 `router/index.js` 的 `DATA_ROUTES` 集合裡，不會被自動觸發；空/錯誤狀態改成用這個頁面自己抓到的 `total`/例外狀況判斷，新增 `loaded`/`loadFailed` 兩個 ref + `isEmpty` computed（`total === 0` 且所有篩選器都沒選），`onMounted` 包 try/catch/finally，套用既有的 `EmptyState.vue`/`ErrorState.vue` 元件——整套模式直接照抄 `RecordsView.vue` 已經在用的做法
+    - 瀏覽器 session 這時候剛好斷線，沒能實際點畫面驗證 `ErrorState` 觸發時的顯示，只用程式碼比對 `RecordsView.vue` 的既有模式跟樹狀結構確認語法正確
+    - `EmptyState.vue` 是共用元件，原本文字寫死「...再點「同步」開始抓取你的抽選紀錄」，是偏個握的措辭（`RecordsView.vue`/`SpendingView.vue`/`RecordsAnalysisView.vue` 原本就在用）；`FullView.vue` 套用同一顆元件後文不對題（全握頁面卻叫使用者去看「抽選紀錄」），改成通用文字「點 Chrome 右上角的同步工具圖示，開始同步你的資料。」不特別講是哪種同步、哪個按鈕，四個共用這顆元件的頁面都適用，不用另外加 props 客製化
+128. 個人視角 vs 全員彙整的頁面容易搞混（例如「個握分析」跟「全員統計→個握總表」畫面幾乎一樣，使用者分不出這頁看到的是自己的資料還是所有人的），討論後決定不改 NavBar 選單命名（選單結構＋既有頁名已經有一定程度的語境提示，硬改字反而增加既有使用者的重新適應成本），改成在頁面標題下方加一行灰色小字說明資料範圍：
+    - `.page-title{margin-bottom:4px}`、`.page-subtitle{color:#888;font-size:13px;margin:0 0 20px}`、`html.dark .page-subtitle{color:#9aa3b5}` 的小樣式套用到 `RecordsAnalysisView.vue`（「顯示你自己同步過的抽選成績」）、`DashboardView.vue`（「彙整所有使用者的成績——只看自己的資料請到「個握分析」／「全握分析」」）、`FullAnalysisView.vue`（「顯示你自己同步過的全握成績」）、`FullSignEventsView.vue`（「顯示你自己同步過的簽名會紀錄」）
+    - `AdminSignEventsView.vue`（管理者「簽名會紀錄」頁）本來也加了一樣的小字，使用者確認後決定刪掉不留，這頁不需要
+129. `DashboardView.vue`（全員統計）是全站資料量最大、初次進頁面等最久的一頁，做了兩處效能修正：
+    - `fLoadStats()`（全握總表）原本 `getGlobalFullOverallStats()` → `fLoadRegionStats()` → `fLoadMemberStats()` 三支 API 依序 `await`，彼此互不依賴（各自用自己的篩選條件 ref），卻疊加成三倍延遲；改成 `Promise.all` 平行打，`fMemberList` 的組裝挪到三支都回來後才做（因為要讀 `fMemberStats.value`，是 `fLoadMemberStats()` 的副作用）
+    - `onMounted` 原本不管使用者要看哪個分頁，「個握總表」「全握總表」兩份統計一次抓完才放行（`pageLoaded`），改成只先抓「目前作用中的分頁」（預設個握總表），另一分頁的資料延後到使用者真的點過去該分頁標籤（`watch(activeTab, ...)`）才觸發抓取；新增 `rLoaded`/`fLoaded`（該分頁資料是否已抓完）+ `rLoading`/`fLoading`（該分頁是否正在抓取中）兩組旗標，前者擋「已經抓過的分頁再切回去不會重抓」，後者擋「還在抓的時候使用者快速切換分頁又切回來，觸發同一分頁重複打 API」的邊界情況
+    - Template 對應改成兩個分頁內容各自用 `v-loading="!rLoaded"`／`v-loading="!fLoaded"` 蓋自己的統計區塊，而不是共用一個全站等待的 `pageLoaded`——分頁標籤、上方「新手上路」等不依賴統計 API 的靜態內容不再被拖著一起等
+    - 用瀏覽器 Network 面板驗證過：一進頁面只有個握總表相關的 API 被呼叫（`/api/global/stats/*`），全握總表的 `/api/global/full/stats/*` 完全沒發；點過去全握總表分頁才觸發那三支且幾乎同時發出（平行生效）；切回個握總表沒有任何 API 重打（`rLoaded` 生效）

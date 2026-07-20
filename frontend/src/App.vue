@@ -77,4 +77,8 @@ html.dark {
 .main { padding: 24px; max-width: 1200px; margin: 0 auto; }
 .page-title { font-size: 24px; font-weight: bold; margin-bottom: 24px; }
 .page { padding: 8px 0; }
+/* 每個頁面元件自己的 .page { background: #f5f7fa } 在深色模式下沒有對應覆寫，
+   會讓整個頁面背景卡在淺色，標題文字（吃 body 的深色模式字色）因此變成
+   淺色字疊淺色底、幾乎看不見——在這裡統一蓋一次，不用每個頁面各自加 */
+html.dark .page { background: #1a1a2e; }
 </style>

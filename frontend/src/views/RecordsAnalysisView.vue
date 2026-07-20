@@ -1,6 +1,7 @@
 <template>
   <div class="page">
     <h1 class="page-title">📊 個握分析</h1>
+    <p class="page-subtitle">顯示你自己同步過的抽選成績</p>
 
     <template v-if="pageLoaded">
     <!-- 錯誤提示 -->
@@ -282,7 +283,7 @@ onMounted(async () => {
   try {
     if (dataStore.hasData === false) {
       const installed = await detectExtension()
-      if (!installed) { router.replace('/setup'); return }
+      if (!installed) { router.replace('/scrape?firstTime=1'); return }
       pageLoaded.value = true
       return
     }
@@ -292,7 +293,7 @@ onMounted(async () => {
     if (overall.value.total_applied === 0) {
       dataStore.hasData = false
       const installed = await detectExtension()
-      if (!installed) { router.replace('/setup'); return }
+      if (!installed) { router.replace('/scrape?firstTime=1'); return }
     } else {
       dataStore.hasData = true
       hasData.value = true
@@ -764,6 +765,9 @@ const chartOption = computed(() => {
 </script>
 
 <style scoped>
+.page-title    { margin-bottom: 4px; }
+.page-subtitle { color: #888; font-size: 13px; margin: 0 0 20px; }
+html.dark .page-subtitle { color: #9aa3b5; }
 .empty-card {
   background: white;
   border-radius: 16px;

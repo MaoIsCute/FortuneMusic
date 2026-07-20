@@ -1,6 +1,7 @@
 <template>
   <div class="page">
     <h1 class="page-title">📊 全員統計</h1>
+    <p class="page-subtitle">彙整所有使用者的成績——只看自己的資料請到「個握分析」／「全握分析」</p>
 
     <template v-if="pageLoaded">
     <el-collapse v-model="quickStartOpen" class="quick-start-collapse">
@@ -51,6 +52,7 @@
           sub="個握總表統計了所有使用者的個握中選率，需要你自己也同步過至少一筆個握紀錄才能解鎖。"
         />
         <template v-else>
+        <div v-loading="!rLoaded" element-loading-text="載入中...">
           <div class="stats-grid">
             <div class="stat-card">
               <div class="stat-label">貢獻人數</div>
@@ -315,6 +317,7 @@
             </el-collapse-item>
 
           </el-collapse>
+        </div>
         </template>
       </el-tab-pane>
 
@@ -326,6 +329,7 @@
           sub="全握總表統計了所有使用者的全握中選率，需要你自己也同步過至少一筆全握紀錄才能解鎖。"
         />
         <template v-else>
+        <div v-loading="!fLoaded" element-loading-text="載入中...">
           <div class="stats-grid">
             <div class="stat-card">
               <div class="stat-label">貢獻人數</div>
@@ -541,6 +545,7 @@
             </el-collapse-item>
 
           </el-collapse>
+        </div>
         </template>
       </el-tab-pane>
 
@@ -605,6 +610,10 @@ const activeTab        = ref('records')
 const pageLoaded       = ref(false)
 const recordsUnlocked  = ref(false)
 const fullUnlocked     = ref(false)
+const rLoaded          = ref(false)
+const rLoading         = ref(false)
+const fLoaded          = ref(false)
+const fLoading         = ref(false)
 
 const QS_DISMISS_KEY = 'dashboardQuickStartDismissed'
 const quickStartOpen = ref(localStorage.getItem(QS_DISMISS_KEY) ? [] : ['quickStart'])
@@ -622,12 +631,39 @@ onMounted(async () => {
     fullUnlocked.value = false
   }
 
-  const tasks = []
-  if (recordsUnlocked.value) tasks.push(rLoadStats())
-  if (fullUnlocked.value) tasks.push(fLoadStats())
-  await Promise.all(tasks)
-
   pageLoaded.value = true
+
+  if (activeTab.value === 'records' && recordsUnlocked.value) await loadRecordsTab()
+  else if (activeTab.value === 'full' && fullUnlocked.value) await loadFullTab()
+})
+
+// 只先抓「目前作用中」的分頁資料，另一分頁等使用者真的切過去才抓；
+// rLoading/fLoading 擋住「還在抓的時候使用者又切走再切回來」造成同一分頁重複打 API
+async function loadRecordsTab() {
+  if (rLoaded.value || rLoading.value) return
+  rLoading.value = true
+  try {
+    await rLoadStats()
+    rLoaded.value = true
+  } finally {
+    rLoading.value = false
+  }
+}
+
+async function loadFullTab() {
+  if (fLoaded.value || fLoading.value) return
+  fLoading.value = true
+  try {
+    await fLoadStats()
+    fLoaded.value = true
+  } finally {
+    fLoading.value = false
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'records' && recordsUnlocked.value) loadRecordsTab()
+  if (tab === 'full' && fullUnlocked.value) loadFullTab()
 })
 
 // ══════════════════════════════════════════════════════════════
@@ -1168,13 +1204,16 @@ const fDetailRows = computed(() => {
 })
 
 async function fLoadStats() {
-  const statsRes = await getGlobalFullOverallStats()
+  // 這三支互相沒有依賴（各自用自己的篩選條件 ref），平行打省掉序列 await 疊加的延遲
+  const [statsRes] = await Promise.all([
+    getGlobalFullOverallStats(),
+    fLoadRegionStats(),
+    fLoadMemberStats(),
+  ])
   fOverall.value = statsRes.data.overall ?? { total_applied: 0, total_won: 0 }
   fByType.value  = (statsRes.data.by_type ?? []).map(r => ({ ...r, win_rate_num: parseFloat(r.win_rate) }))
   fContributorCount.value = statsRes.data.contributor_count ?? 0
   fVenueList.value = [...new Set(fByType.value.map(r => r.venue).filter(v => v))]
-  await fLoadRegionStats()
-  await fLoadMemberStats()
   const nameGroupMap = new Map()
   fMemberStats.value.forEach(m => m.member_name.split('・').forEach(n => { n = n.trim(); if (n) nameGroupMap.set(n, m.group || '') }))
   fMemberList.value = sortMembersByGroupAndGen([...nameGroupMap.entries()].map(([name, group]) => ({ name, group })))
@@ -1254,6 +1293,9 @@ async function fLoadDetail() {
 <style scoped>
 .page { background: #f5f7fa; min-height: 100vh; }
 :deep(.el-table .cell) { white-space: nowrap; }
+.page-title    { margin-bottom: 4px; }
+.page-subtitle { color: #888; font-size: 13px; margin: 0 0 20px; }
+html.dark .page-subtitle { color: #9aa3b5; }
 
 .quick-start-collapse { margin-bottom: 20px; }
 .quick-start-steps {

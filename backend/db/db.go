@@ -141,4 +141,29 @@ func Init(cfg *config.Config) {
 	for _, tbl := range []string{"records", "purchases"} {
 		DB.Exec(`UPDATE ` + tbl + ` SET session = '第' || session WHERE session ~ '^[0-9]+部$'`)
 	}
+
+	// event_date 統一補零成 "YYYY/MM/DD"（冪等，只處理還沒補零、看起來像日期的值）：擴充功能組出來的
+	// 原始字串月、日不補零（例如 "2026/7/5"），字串排序/範圍比較（ORDER BY、>=/<=）因此跟真正的日期
+	// 先後順序對不上——逐字元比較會讓 "2026/7/5" 排在 "2026/7/19" 前面。後端新寫入的資料已經改成一律
+	// 補零（handlers 的 normalizeEventDate），這裡把既有資料一起回填，新舊資料在 event_date 上的
+	// 精確比對（場地/標題查表用 group+單曲號+日期當 key）才不會因為補零前後格式不一致而對不上
+	for _, tbl := range []string{"records", "full_records", "sign_events", "venues"} {
+		DB.Exec(`
+			UPDATE ` + tbl + `
+			SET event_date = TO_CHAR(TO_DATE(event_date, 'YYYY/MM/DD'), 'YYYY/MM/DD')
+			WHERE event_date ~ '^[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}$'
+			  AND event_date !~ '^[0-9]{4}/[0-9]{2}/[0-9]{2}$'
+		`)
+	}
+	// purchases 的 item_key（entry_id:member_name:event_date:session 組出來的去重鍵）要跟著一起重算，
+	// 不然舊 item_key 裡包的還是沒補零的日期片段，跟之後新算出來的 item_key 對不上，會被誤判成
+	// 新記錄重複寫入；SET 的兩個欄位都是從同一個舊的 event_date 值算出來，在同一個 UPDATE 裡一次做完
+	DB.Exec(`
+		UPDATE purchases
+		SET item_key = entry_id || ':' || member_name || ':' ||
+		               TO_CHAR(TO_DATE(event_date, 'YYYY/MM/DD'), 'YYYY/MM/DD') || ':' || session,
+		    event_date = TO_CHAR(TO_DATE(event_date, 'YYYY/MM/DD'), 'YYYY/MM/DD')
+		WHERE event_date ~ '^[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}$'
+		  AND event_date !~ '^[0-9]{4}/[0-9]{2}/[0-9]{2}$'
+	`)
 }

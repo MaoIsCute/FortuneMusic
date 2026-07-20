@@ -18,7 +18,7 @@
         </el-option>
       </el-select>
       <el-select v-model="filterMember" placeholder="選擇成員" clearable @change="loadRecords">
-        <el-option v-for="m in memberList" :key="m.name" :label="m.name" :value="m.name">
+        <el-option v-for="m in memberList" :key="`${m.group}:${m.name}`" :label="m.name" :value="`${m.group}:${m.name}`">
           <span :style="{ color: GROUP_COLORS[m.group] }">{{ m.name }}</span>
         </el-option>
       </el-select>
@@ -176,7 +176,14 @@ async function loadRecords() {
 async function fetchPage() {
   const params = { page: page.value, page_size: pageSize }
   if (filterGroup.value)  params.group  = filterGroup.value
-  if (filterMember.value) params.member = filterMember.value
+  if (filterMember.value) {
+    // 成員下拉的 value 是 "group:member_name" 組合字串，不是純名字——三個團體目前雖然沒有
+    // 撞名的成員，但後端 member_name 篩選跟 group 是各自獨立的條件，只送名字的話萬一以後
+    // 真的出現同名成員，會撈到其他團體同名的人。一律把 group 也一起帶給後端，見 CLAUDE.md #126
+    const [mGroup, mName] = filterMember.value.split(':')
+    params.group  = mGroup
+    params.member = mName
+  }
   if (filterSingle.value) params.single = filterSingle.value
   if (filterRound.value)  params.round  = filterRound.value
   const res = await getRecords(params)

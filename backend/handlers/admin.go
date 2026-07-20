@@ -19,6 +19,27 @@ func normalizeMember(name string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(name), " ", ""), "　", "")
 }
 
+// normalizeEventDate 把擴充功能送來的 "YYYY/M/D"（月、日不補零）轉成補零的 "YYYY/MM/DD"。
+// event_date 在 records/full_records/purchases/sign_events/venues 五張表都是純字串欄位，
+// 不補零的話字串排序/範圍比較（ORDER BY、>=/<=）跟真正的日期先後順序對不上——例如
+// "2026/7/5" 字串上會排在 "2026/7/19" 前面，因為逐字元比較 '5' > '1'；補零成
+// "2026/07/05" vs "2026/07/19" 之後，字串順序才會等於日期順序。
+// 格式不符合預期（分割後不是三段、或任一段不是數字）就原樣傳回，不強行處理，避免把
+// 壞資料吃掉變成看不出來的空值或 0000/00/00。
+func normalizeEventDate(s string) string {
+	parts := strings.Split(s, "/")
+	if len(parts) != 3 {
+		return s
+	}
+	y, err1 := strconv.Atoi(parts[0])
+	m, err2 := strconv.Atoi(parts[1])
+	d, err3 := strconv.Atoi(parts[2])
+	if err1 != nil || err2 != nil || err3 != nil {
+		return s
+	}
+	return fmt.Sprintf("%04d/%02d/%02d", y, m, d)
+}
+
 // titleKey 同時以 group + single_number 識別一張單曲，避免不同團體的單曲號互相覆蓋
 type titleKey struct {
 	Group        string

@@ -81,6 +81,13 @@ func PushPurchases(c *gin.Context) {
 		return
 	}
 
+	// event_date 補零成 "YYYY/MM/DD"（見 CLAUDE.md #123），要在算 item_key 之前做，
+	// 不然 item_key 裡包的日期段落跟資料庫既有（已回填補零）的 item_key 對不上，
+	// 會被誤判成新記錄重複寫入
+	for i := range req.Purchases {
+		req.Purchases[i].EventDate = normalizeEventDate(req.Purchases[i].EventDate)
+	}
+
 	now := time.Now()
 	titleMaps := loadTitleMap()
 

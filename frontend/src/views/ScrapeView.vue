@@ -7,12 +7,14 @@
     </div>
     <!-- 連結前 -->
     <div v-if="statusType !== 'success'" class="setup-card">
-      <p class="desc">點擊下方按鈕，自動將你的帳號與同步工具連結，完成一鍵設定。</p>
+      <p class="desc">
+        {{ firstTime ? '目前還沒有任何抽選資料，請先安裝同步工具、連結帳號，就能開始同步你的抽選紀錄。' : '點擊下方按鈕，自動將你的帳號與同步工具連結，完成一鍵設定。' }}
+      </p>
       <el-button type="primary" size="large" :loading="loading" @click="authorize">
         連結同步工具
       </el-button>
       <p v-if="statusMsg" :class="['status-msg', statusType]">{{ statusMsg }}</p>
-      <div v-if="statusType === 'error'" class="install-guide">
+      <div v-if="statusType === 'error' || firstTime" class="install-guide">
         <a href="https://github.com/MaoIsCute/FortuneMusic/raw/main/FTExtension.zip" target="_blank" class="download-btn">
           ⬇️ 下載同步工具
         </a>
@@ -45,7 +47,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { getExtensionVersion } from '../utils/extension'
 
 const copied = ref(false)
@@ -59,6 +61,11 @@ import { getScrapeToken } from '../api/index'
 const EXTENSION_ID = 'gdclpkfeiocedicokoenhconeoocigeh'
 
 const router = useRouter()
+const route  = useRoute()
+// 從「個握分析」偵測到擴充功能未安裝時會帶 ?firstTime=1 導過來（原本是導去一個獨立的
+// /setup 歡迎頁，內容跟這裡幾乎重複，改成同一個頁面用這個參數決定要不要主動展開安裝步驟，
+// 不用先讓使用者點過一次「連結同步工具」失敗才看得到，見 CLAUDE.md）
+const firstTime = computed(() => route.query.firstTime === '1')
 const loading   = ref(false)
 const statusMsg = ref('')
 const statusType = ref('')

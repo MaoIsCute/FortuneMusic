@@ -111,6 +111,8 @@ onMounted(() => {
 .card-title { font-weight: 600; font-size: 14px; color: #111827; }
 .empty { color: #999; text-align: center; padding: 32px 0; }
 .sub-text { font-size: 11px; color: #999; }
+html.dark .card       { background: #1e2030; border-color: #2e3450; box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
+html.dark .card-title { color: #e8eaf0; }
 .tag-won   { color: #52c41a; font-weight: bold; }
 .tag-lost  { color: #ff4d4f; font-weight: bold; }
 .filter-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }

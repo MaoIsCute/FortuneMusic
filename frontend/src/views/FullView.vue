@@ -1,6 +1,10 @@
 <template>
   <div class="page">
     <h1 class="page-title">📋 全握紀錄</h1>
+    <template v-if="loaded">
+    <ErrorState v-if="loadFailed" />
+    <EmptyState v-else-if="isEmpty" />
+    <template v-else>
 
     <div class="card">
       <div class="filters">
@@ -16,7 +20,7 @@
           </el-option>
         </el-select>
         <el-select v-model="filterMember" placeholder="選擇成員" clearable @change="loadRecords">
-          <el-option v-for="m in memberList" :key="m.name" :label="m.name" :value="m.name">
+          <el-option v-for="m in memberList" :key="`${m.group}:${m.name}`" :label="m.name" :value="`${m.group}:${m.name}`">
             <span :style="{ color: GROUP_COLORS[m.group || filterGroup] }">{{ m.name }}</span>
           </el-option>
         </el-select>
@@ -29,7 +33,7 @@
           <el-option v-for="v in venueList" :key="v" :label="v" :value="v" />
         </el-select>
         <el-select v-model="filterSingle" placeholder="單曲" clearable @change="loadRecords" style="width:100px">
-          <el-option v-for="s in singleList" :key="`${s.group}:${s.single_number}`" :label="formatSingle(s.single_name)" :value="s.single_number">
+          <el-option v-for="s in singleList" :key="`${s.group}:${s.single_number}`" :label="formatSingle(s.single_name)" :value="`${s.group}:${s.single_number}`">
             <span :style="{ color: GROUP_COLORS[s.group || filterGroup] }">{{ formatSingle(s.single_name) }}</span>
           </el-option>
         </el-select>
@@ -82,13 +86,18 @@
         />
       </div>
     </div>
+
+    </template>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getFullRecords, getFullOverallStats, getFullStatsByMember, getFullStatsBySingle } from '../api/index'
 import { sortMembersByGroupAndGen } from '../utils/members'
+import EmptyState from '../components/EmptyState.vue'
+import ErrorState from '../components/ErrorState.vue'
 
 const GROUP_COLORS = { nogizaka46: '#9333ea', sakurazaka46: '#ec4899', hinatazaka46: '#0ea5e9' }
 
@@ -107,6 +116,15 @@ const filterType   = ref('')
 const filterVenue  = ref('')
 const filterSingle = ref(null)
 const filterRound  = ref(null)
+
+// 這裡不用 stores/data.js 的 dataStore（那個追的是個握 getStats，跟全握是不同資料來源），
+// 空/錯誤狀態就用這個頁面自己抓到的結果判斷，跟 RecordsView.vue 同一套 loaded/loadFailed/isEmpty 模式
+const loaded     = ref(false)
+const loadFailed = ref(false)
+const isEmpty = computed(() =>
+  loaded.value && total.value === 0 &&
+  !filterGroup.value && !filterMember.value && !filterType.value && !filterVenue.value && !filterSingle.value && !filterRound.value
+)
 
 async function reloadFilterLists() {
   const groupParam = filterGroup.value ? { group: filterGroup.value } : {}
@@ -147,8 +165,14 @@ async function onGroupChange() {
 }
 
 onMounted(async () => {
-  await reloadFilterLists()
-  await loadRecords()
+  try {
+    await reloadFilterLists()
+    await loadRecords()
+  } catch {
+    loadFailed.value = true
+  } finally {
+    loaded.value = true
+  }
 })
 
 function onTypeChange() {
@@ -164,10 +188,24 @@ async function loadRecords() {
 async function fetchPage() {
   const params = { page: page.value, page_size: pageSize }
   if (filterGroup.value)  params.group  = filterGroup.value
-  if (filterMember.value) params.member = filterMember.value
+  if (filterMember.value) {
+    // 成員下拉的 value 是 "group:member_name" 組合字串，同樣的道理見下面單曲那段的說明，
+    // 見 CLAUDE.md #126
+    const [mGroup, mName] = filterMember.value.split(':')
+    params.group  = mGroup
+    params.member = mName
+  }
   if (filterType.value)   params.event_type = filterType.value
   if (filterVenue.value)  params.venue = filterVenue.value
-  if (filterSingle.value !== null) params.single_number = filterSingle.value
+  if (filterSingle.value !== null) {
+    // 單曲下拉的 value 是 "group:single_number" 組合字串（不是純數字），因為三個團體各自從 1 開始
+    // 編號、號碼範圍會重疊——只送單曲號不夠，一定要一起帶團體，不然 GetFullRecords 的
+    // single_number 篩選會跨團體撈到同號碼的其他團體資料，見 CLAUDE.md #125（同一個問題
+    // RecordsView.vue 已經在 #113 修過）
+    const [sGroup, sNum] = filterSingle.value.split(':')
+    params.group = sGroup
+    params.single_number = sNum
+  }
   if (filterRound.value  !== null) params.lottery_round = filterRound.value
   const res = await getFullRecords(params)
   records.value = res.data.data ?? []
@@ -200,6 +238,7 @@ function formatSingle(name) {
   box-shadow: 0 2px 8px rgba(0,0,0,0.07);
   border: 1px solid #e5e7eb;
 }
+html.dark .card { background: #1e2030; border-color: #2e3450; box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
 .filters { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
 .rate { font-weight: bold; }

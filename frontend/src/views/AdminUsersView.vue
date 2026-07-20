@@ -74,4 +74,6 @@ onMounted(loadUsers)
 }
 .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .card-title { font-weight: 600; font-size: 14px; color: #111827; }
+html.dark .card       { background: #1e2030; border-color: #2e3450; box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
+html.dark .card-title { color: #e8eaf0; }
 </style>

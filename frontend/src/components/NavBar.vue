@@ -51,7 +51,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
 
-const APP_VERSION = '1.5'
+const APP_VERSION = '1.6'
 
 const router = useRouter()
 const route  = useRoute()
@@ -114,6 +114,9 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
   font-size: 14px;
 }
 .nav-menu a:hover { background: #f5f7fa; }
+html.dark .nav-menu       { background: #252840; box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
+html.dark .nav-menu a     { color: #d4d8e3 !important; }
+html.dark .nav-menu a:hover { background: #2c3154; }
 .actions { display: flex; align-items: center; gap: 12px; }
 .version { font-size: 11px; opacity: 0.6; }
 .user { font-size: 14px; }

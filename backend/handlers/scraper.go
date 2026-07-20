@@ -96,6 +96,11 @@ func PushRecords(c *gin.Context) {
 		return
 	}
 
+	// event_date 補零成 "YYYY/MM/DD"，讓字串排序/範圍比較等於真正的日期先後順序，見 CLAUDE.md #123
+	for i := range req.Records {
+		req.Records[i].EventDate = normalizeEventDate(req.Records[i].EventDate)
+	}
+
 	now := time.Now()
 	titleMaps := loadTitleMap()
 

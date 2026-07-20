@@ -2,7 +2,7 @@
   <div class="empty-card">
     <div class="empty-icon">📭</div>
     <p class="empty-title">還沒有任何資料</p>
-    <p class="empty-sub">點 Chrome 右上角的同步工具圖示，再點「同步」開始抓取你的抽選紀錄。</p>
+    <p class="empty-sub">點 Chrome 右上角的同步工具圖示，開始同步你的資料。</p>
   </div>
 </template>
 

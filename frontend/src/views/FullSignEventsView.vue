@@ -1,6 +1,7 @@
 <template>
   <div class="page">
     <h1 class="page-title">✍️ 簽名會紀錄</h1>
+    <p class="page-subtitle">顯示你自己同步過的簽名會紀錄</p>
 
     <div class="card">
       <div class="filters">
@@ -120,6 +121,9 @@ onMounted(fetchPage)
 <style scoped>
 .page { background: #f5f7fa; min-height: 100vh; }
 :deep(.el-table .cell) { white-space: nowrap; }
+.page-title    { margin-bottom: 4px; }
+.page-subtitle { color: #888; font-size: 13px; margin: 0 0 20px; }
+html.dark .page-subtitle { color: #9aa3b5; }
 .card {
   background: white;
   border-radius: 10px;
@@ -127,6 +131,7 @@ onMounted(fetchPage)
   box-shadow: 0 2px 8px rgba(0,0,0,0.07);
   border: 1px solid #e5e7eb;
 }
+html.dark .card { background: #1e2030; border-color: #2e3450; box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
 .filters { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .empty { color: #999; text-align: center; padding: 32px 0; }
 .pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
