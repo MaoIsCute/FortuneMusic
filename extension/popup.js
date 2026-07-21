@@ -42,6 +42,21 @@ function toHalf(s) {
   return (s || '').replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
 }
 
+// 「有新版本」提醒原本只做在網站 /scrape 頁，使用者連結過帳號後幾乎不會再進那個頁面，
+// 提醒形同虛設。改成每次打 /scrape/* 時比對後端回傳的 X-Latest-Extension-Version header，
+// 落後就在 popup 最上方顯示提醒橫幅，才會在使用者實際操作（按同步/驗證/補抓）的路徑上被看到
+function checkExtensionVersion(res) {
+  const latest = res.headers.get('X-Latest-Extension-Version')
+  if (!latest) return
+  const current = chrome.runtime.getManifest().version
+  if (parseFloat(current) < parseFloat(latest)) {
+    const banner = document.getElementById('updateBanner')
+    banner.innerHTML = `⚠️ 有新版本可用（目前 v${current}，最新 v${latest}），建議重新下載安裝。` +
+      `<a href="https://github.com/MaoIsCute/FortuneMusic/raw/main/FTExtension.zip" target="_blank">立即更新 →</a>`
+    banner.style.display = 'block'
+  }
+}
+
 // 所有打後端 /scrape/* 的請求都要經過這裡，統一帶上擴充功能版本號，
 // 後端會比對最低版本、版本太舊直接擋下（HTTP 426），避免舊版持續送進已知有問題的資料
 function backendFetch(url, options = {}) {
@@ -51,7 +66,7 @@ function backendFetch(url, options = {}) {
       ...(options.headers || {}),
       'X-Extension-Version': chrome.runtime.getManifest().version,
     },
-  })
+  }).then(res => { checkExtensionVersion(res); return res })
 }
 
 // 後端擋下版本過舊的請求時會回傳 { error: 'extension_outdated', message }，
@@ -707,6 +722,37 @@ function parseFullApiResults(results, singleNum, group) {
   }
   return Object.values(recordMap)
 }
+
+// 「商品抽選」（生寫/海報等周邊獎品）跟握手/簽名會是不同性質的項目：prizeId 是固定字串
+// （如 "p_sign_photo"，不含日期），prizeInfo 沒有 date/part，result 永遠是「抽選中」，讀不到
+// 中選/落選，只有申請口數（item.count）有意義。用 prizeId 開頭是不是 "p_" 判斷（不寫死列舉
+// 已知的三種，之後網站增加新獎品也能抓到，只是前端顯示名稱對不到會 fallback 顯示原始代碼）
+function parsePrizeResults(results, group, singleNum) {
+  const prizeMap = {}
+  for (const item of results) {
+    const prizeId = item.prizeId || ''
+    if (!prizeId.startsWith('p_')) continue
+    const prizeInfo = item.prizeInfo || {}
+    const memberName = (prizeInfo.members || [])
+      .map(m => toHalf(m).replace(/[\s　]+/g, '').trim()).filter(Boolean).join('・')
+    if (!memberName) continue
+
+    const key = `${group}:${singleNum}:${prizeId}:${memberName}`
+    const appliedCount = item.count || 0
+    if (prizeMap[key]) {
+      prizeMap[key].applied_count += appliedCount
+    } else {
+      prizeMap[key] = {
+        group,
+        single_number: singleNum,
+        prize_code:    prizeId,
+        member_name:   memberName,
+        applied_count: appliedCount,
+      }
+    }
+  }
+  return Object.values(prizeMap)
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 const FORTUNE_USER_ID_KEY = 'fortuneUserId'
@@ -918,11 +964,12 @@ fullScrapeBtn.addEventListener('click', async () => {
       emptyStreak = 0
 
       const records = parseFullApiResults(results, n, group)
-      if (records.length > 0) {
+      const prizes  = parsePrizeResults(results, group, n)
+      if (records.length > 0 || prizes.length > 0) {
         const pushRes = await backendFetch(`${backendUrl}/scrape/full/push`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ scrape_token: scrapeToken, records }),
+          body:    JSON.stringify({ scrape_token: scrapeToken, records, prizes }),
         })
         const pushJson = await pushRes.json()
         if (!pushRes.ok) { errorMsg = fetchErrorMessage(pushJson, '上傳紀錄時發生錯誤，請稍後再試'); techError = `full/push 失敗：HTTP ${pushRes.status}，${pushJson.error || ''}`.trim(); break }

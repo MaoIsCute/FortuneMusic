@@ -123,7 +123,7 @@ func Init(cfg *config.Config) {
 		END $$;
 	`)
 
-	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.SignEvent{}, &models.Purchase{}, &models.ScrapeLog{}, &models.Title{}, &models.Venue{}); err != nil {
+	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.SignEvent{}, &models.Purchase{}, &models.ScrapeLog{}, &models.Title{}, &models.Venue{}, &models.Prize{}); err != nil {
 		log.Fatal("AutoMigrate failed:", err)
 	}
 

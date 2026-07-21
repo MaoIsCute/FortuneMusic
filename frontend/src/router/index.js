@@ -11,6 +11,7 @@ const routes = [
   { path: '/full/spending', name: 'FullSpending', component: () => import('../views/FullSpendingView.vue') },
   { path: '/full/analysis', name: 'FullAnalysis', component: () => import('../views/FullAnalysisView.vue') },
   { path: '/full/sign-events', name: 'FullSignEvents', component: () => import('../views/FullSignEventsView.vue') },
+  { path: '/full/prizes', name: 'FullPrizes', component: () => import('../views/FullPrizesView.vue') },
   { path: '/spending', name: 'Spending', component: () => import('../views/SpendingView.vue') },
   { path: '/scrape', name: 'Scrape', component: () => import('../views/ScrapeView.vue') },
   { path: '/admin', redirect: '/admin/users' },
@@ -19,6 +20,7 @@ const routes = [
   { path: '/admin/titles', name: 'AdminTitles', component: () => import('../views/AdminTitlesView.vue'), meta: { admin: true } },
   { path: '/admin/venues', name: 'AdminVenues', component: () => import('../views/AdminVenuesView.vue'), meta: { admin: true } },
   { path: '/admin/sign-events', name: 'AdminSignEvents', component: () => import('../views/AdminSignEventsView.vue'), meta: { admin: true } },
+  { path: '/admin/prizes', name: 'AdminPrizes', component: () => import('../views/AdminPrizesView.vue'), meta: { admin: true } },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
 ]
 

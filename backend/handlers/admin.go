@@ -481,6 +481,41 @@ func DeleteUserSignEvents(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
 }
 
+// applyPrizeDeleteFilters 跟 applyDeleteFilters 分開一份，因為 prizes 表沒有 event_date 欄位，
+// 不能套用 date_from/date_to（那兩個條件會對不存在的欄位下 SQL 直接出錯）
+func applyPrizeDeleteFilters(q *gorm.DB, c *gin.Context) *gorm.DB {
+	if grp := c.Query("group"); grp != "" {
+		q = q.Where(`"group" = ?`, grp)
+	}
+	if sn := c.Query("single_number"); sn != "" {
+		q = q.Where("single_number = ?", sn)
+	}
+	return q
+}
+
+func PreviewUserPrizes(c *gin.Context) {
+	if !checkAdmin(c) { return }
+	targetID, ok := parseAdminTarget(c)
+	if !ok { return }
+	page, pageSize := 1, 50
+	fmt.Sscan(c.DefaultQuery("page", "1"), &page)
+	q := applyPrizeDeleteFilters(db.DB.Model(&models.Prize{}).Where("user_id = ?", targetID), c)
+	var total int64
+	q.Count(&total)
+	var rows []models.Prize
+	q.Order("single_number DESC, prize_code ASC, member_name ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&rows)
+	c.JSON(http.StatusOK, gin.H{"data": rows, "total": total})
+}
+
+func DeleteUserPrizes(c *gin.Context) {
+	if !checkAdmin(c) { return }
+	targetID, ok := parseAdminTarget(c)
+	if !ok { return }
+	q := applyPrizeDeleteFilters(db.DB.Where("user_id = ?", targetID), c)
+	deleted := q.Delete(&models.Prize{}).RowsAffected
+	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
+}
+
 func GetAdminSignEvents(c *gin.Context) {
 	if !checkAdmin(c) {
 		return
@@ -502,6 +537,7 @@ func GetAdminSignEvents(c *gin.Context) {
 		UserID       uint    `json:"user_id"`
 		UserName     string  `json:"user_name"`
 		UserEmail    string  `json:"user_email"`
+		Group        string  `json:"group"`
 		SingleNumber int     `json:"single_number"`
 		SingleName   string  `json:"single_name"`
 		Venue        string  `json:"venue"`
@@ -519,6 +555,9 @@ func GetAdminSignEvents(c *gin.Context) {
 	if uid := c.Query("user_id"); uid != "" {
 		q = q.Where("sign_events.user_id = ?", uid)
 	}
+	if grp := c.Query("group"); grp != "" {
+		q = q.Where("sign_events.\"group\" = ?", grp)
+	}
 	if m := c.Query("member"); m != "" {
 		q = q.Where("sign_events.member_name = ?", m)
 	}
@@ -531,6 +570,64 @@ func GetAdminSignEvents(c *gin.Context) {
 
 	var rows []SignEventRow
 	q.Order("sign_events.event_date DESC, sign_events.member_name ASC").
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Scan(&rows)
+
+	c.JSON(http.StatusOK, gin.H{"data": rows, "total": total})
+}
+
+// GetAdminPrizes 列出所有使用者的「商品抽選」申請紀錄，比照 GetAdminSignEvents 同一套模式
+func GetAdminPrizes(c *gin.Context) {
+	if !checkAdmin(c) {
+		return
+	}
+
+	page, pageSize := 1, 50
+	if p := c.Query("page"); p != "" {
+		fmt.Sscan(p, &page)
+	}
+	if ps := c.Query("page_size"); ps != "" {
+		fmt.Sscan(ps, &pageSize)
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	type PrizeRow struct {
+		ID           uint   `json:"id"`
+		UserID       uint   `json:"user_id"`
+		UserName     string `json:"user_name"`
+		UserEmail    string `json:"user_email"`
+		Group        string `json:"group"`
+		SingleNumber int    `json:"single_number"`
+		PrizeCode    string `json:"prize_code"`
+		MemberName   string `json:"member_name"`
+		AppliedCount int    `json:"applied_count"`
+		WonStatus    string `json:"won_status"`
+	}
+
+	q := db.DB.Table("prizes").
+		Select("prizes.*, users.name as user_name, users.email as user_email").
+		Joins("LEFT JOIN users ON users.id = prizes.user_id")
+
+	if uid := c.Query("user_id"); uid != "" {
+		q = q.Where("prizes.user_id = ?", uid)
+	}
+	if grp := c.Query("group"); grp != "" {
+		q = q.Where("prizes.\"group\" = ?", grp)
+	}
+	if m := c.Query("member"); m != "" {
+		q = q.Where("prizes.member_name = ?", m)
+	}
+	if pc := c.Query("prize_code"); pc != "" {
+		q = q.Where("prizes.prize_code = ?", pc)
+	}
+
+	var total int64
+	q.Count(&total)
+
+	var rows []PrizeRow
+	q.Order("prizes.single_number DESC, prizes.prize_code ASC, prizes.member_name ASC").
 		Offset((page - 1) * pageSize).Limit(pageSize).
 		Scan(&rows)
 

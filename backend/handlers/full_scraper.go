@@ -12,6 +12,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// PrizePayload 是「商品抽選」類獎品（生寫/海報等）的上傳格式，見 models.Prize 的說明。
+type PrizePayload struct {
+	Group        string `json:"group"`
+	SingleNumber int    `json:"single_number"`
+	PrizeCode    string `json:"prize_code"`
+	MemberName   string `json:"member_name"`
+	AppliedCount int    `json:"applied_count"`
+}
+
 func PushFullRecords(c *gin.Context) {
 	type FullPayload struct {
 		OrderID      string  `json:"order_id"`
@@ -29,11 +38,16 @@ func PushFullRecords(c *gin.Context) {
 		SourceURL    string  `json:"source_url"`
 	}
 	var req struct {
-		ScrapeToken string        `json:"scrape_token" binding:"required"`
-		Records     []FullPayload `json:"records" binding:"required"`
+		ScrapeToken string         `json:"scrape_token" binding:"required"`
+		Records     []FullPayload  `json:"records"`
+		Prizes      []PrizePayload `json:"prizes"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "請提供 scrape_token 與 records"})
+		return
+	}
+	if len(req.Records) == 0 && len(req.Prizes) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "請提供 records 或 prizes"})
 		return
 	}
 
@@ -223,12 +237,131 @@ func PushFullRecords(c *gin.Context) {
 		}
 	}
 
+	prizeNew, prizeUpdated, prizeSkipped := pushPrizes(user.ID, req.Prizes, now)
+	newRecords += prizeNew
+	updated += prizeUpdated
+	skipped += prizeSkipped
+
 	c.JSON(http.StatusOK, gin.H{
 		"new_records": newRecords,
 		"updated":     updated,
 		"skipped":     skipped,
 		"message":     fmt.Sprintf("完成！新增 %d 筆，更新 %d 筆，跳過 %d 筆", newRecords, updated, skipped),
 	})
+}
+
+type prizeKey struct {
+	Group        string
+	SingleNumber int
+	PrizeCode    string
+	MemberName   string
+}
+
+// pushPrizes 處理「商品抽選」類獎品申請（生寫/海報等，見 models.Prize 說明）。這類資料跟
+// 握手/簽名會形狀不同：沒有 event_date/venue/session，也沒有中選/落選結果，item.count 是
+// 目前累計總口數（不是這次新增的量），所以是 upsert（口數變了才更新），不是累加。
+func pushPrizes(userID uint, payload []PrizePayload, now time.Time) (newCount, updated, skipped int) {
+	if len(payload) == 0 {
+		return
+	}
+
+	singleNumbers := make(map[int]bool, len(payload))
+	for _, p := range payload {
+		singleNumbers[p.SingleNumber] = true
+	}
+	nums := make([]int, 0, len(singleNumbers))
+	for n := range singleNumbers {
+		nums = append(nums, n)
+	}
+
+	var existing []models.Prize
+	db.DB.Where("user_id = ? AND single_number IN ?", userID, nums).Find(&existing)
+	existingMap := make(map[prizeKey]*models.Prize, len(existing))
+	for i := range existing {
+		e := &existing[i]
+		existingMap[prizeKey{e.Group, e.SingleNumber, e.PrizeCode, e.MemberName}] = e
+	}
+
+	newPrizes := map[prizeKey]models.Prize{}
+	for _, p := range payload {
+		member := normalizeMember(p.MemberName)
+		key := prizeKey{p.Group, p.SingleNumber, p.PrizeCode, member}
+		if e, ok := existingMap[key]; ok {
+			if e.AppliedCount != p.AppliedCount {
+				db.DB.Model(e).Update("applied_count", p.AppliedCount)
+				updated++
+			} else {
+				skipped++
+			}
+			continue
+		}
+		if _, ok := newPrizes[key]; ok {
+			continue
+		}
+		newPrizes[key] = models.Prize{
+			UserID:       userID,
+			Group:        p.Group,
+			SingleNumber: p.SingleNumber,
+			PrizeCode:    p.PrizeCode,
+			MemberName:   member,
+			AppliedCount: p.AppliedCount,
+			ScrapedAt:    now,
+		}
+	}
+	if len(newPrizes) > 0 {
+		batch := make([]models.Prize, 0, len(newPrizes))
+		for _, v := range newPrizes {
+			batch = append(batch, v)
+		}
+		if err := db.DB.Create(&batch).Error; err == nil {
+			newCount = len(batch)
+		}
+	}
+	return
+}
+
+// GetPrizes 列出目前使用者所有「商品抽選」申請紀錄，依 (group, single_number, prize_code,
+// member_name) 去重後每種組合只有一列，資料量小，不分頁。
+func GetPrizes(c *gin.Context) {
+	userID := getUserID(c)
+
+	query := db.DB.Model(&models.Prize{}).Where("user_id = ?", userID)
+	if grp := c.Query("group"); grp != "" {
+		query = query.Where("\"group\" = ?", grp)
+	}
+
+	var rows []models.Prize
+	query.Order("single_number DESC, prize_code ASC, member_name ASC").Find(&rows)
+
+	c.JSON(http.StatusOK, gin.H{"data": rows})
+}
+
+// UpdatePrizeResult 讓使用者手動標記某筆商品抽選的中選結果（來源網站讀不到，只能自己記錄）。
+// 只能改自己的紀錄，用 user_id 一起當 WHERE 條件，不靠只查 ID 再假設是本人的。
+func UpdatePrizeResult(c *gin.Context) {
+	userID := getUserID(c)
+
+	var req struct {
+		WonStatus string `json:"won_status"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "請提供 won_status"})
+		return
+	}
+	if req.WonStatus != "" && req.WonStatus != "won" && req.WonStatus != "lost" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "won_status 只能是空字串、won 或 lost"})
+		return
+	}
+
+	result := db.DB.Model(&models.Prize{}).
+		Where("id = ? AND user_id = ?", c.Param("id"), userID).
+		Update("won_status", req.WonStatus)
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "找不到這筆紀錄"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"won_status": req.WonStatus})
 }
 
 func GetSignEvents(c *gin.Context) {

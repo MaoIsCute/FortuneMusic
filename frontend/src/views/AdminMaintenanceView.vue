@@ -9,11 +9,12 @@
         <template #title><span class="collapse-title">刪除資料</span></template>
 
         <div class="delete-form">
-          <el-select v-model="del.recordType" style="width:120px" @change="clearPreview">
+          <el-select v-model="del.recordType" style="width:120px" @change="onRecordTypeChange">
             <el-option label="個握" value="records" />
             <el-option label="全握" value="full-records" />
             <el-option label="個握花費" value="purchases" />
             <el-option label="簽名會" value="sign-events" />
+            <el-option label="商品抽選" value="prizes" />
           </el-select>
           <el-select v-model="del.userId" placeholder="選擇使用者" style="width:200px" clearable @change="clearPreview">
             <el-option v-for="u in users" :key="u.id" :label="`${u.name} (${u.email})`" :value="u.id" />
@@ -32,7 +33,7 @@
           <el-select v-model="del.mode" style="width:140px" @change="clearPreview">
             <el-option label="全部" value="all" />
             <el-option label="指定單曲" value="single" />
-            <el-option label="指定日期範圍" value="date" />
+            <el-option v-if="del.recordType !== 'prizes'" label="指定日期範圍" value="date" />
           </el-select>
           <el-input v-if="del.mode === 'single'" v-model="del.singleNumber" placeholder="單曲號" style="width:100px" type="number" @change="clearPreview" />
           <el-date-picker
@@ -111,7 +112,7 @@
             </el-table>
 
             <!-- 個握花費 -->
-            <el-table table-layout="auto" v-else :data="previewData" stripe size="small" max-height="400">
+            <el-table table-layout="auto" v-else-if="del.recordType === 'purchases'" :data="previewData" stripe size="small" max-height="400">
               <el-table-column prop="member_name" label="成員" min-width="65" />
               <el-table-column label="單曲" min-width="320">
                 <template #default="{ row }"><span style="white-space:nowrap">{{ formatSingle(row.single_name) }}</span></template>
@@ -121,6 +122,23 @@
               <el-table-column prop="unit_price" label="單價" min-width="60" align="right" />
               <el-table-column prop="quantity" label="數量" min-width="50" align="right" />
               <el-table-column prop="subtotal" label="小計" min-width="60" align="right" />
+            </el-table>
+
+            <!-- 商品抽選 -->
+            <el-table table-layout="auto" v-else :data="previewData" stripe size="small" max-height="400">
+              <el-table-column label="團體" min-width="80">
+                <template #default="{ row }">{{ groupLabel(row.group) }}</template>
+              </el-table-column>
+              <el-table-column label="單曲" min-width="70">
+                <template #default="{ row }">{{ row.single_number }}單</template>
+              </el-table-column>
+              <el-table-column label="獎品" min-width="140">
+                <template #default="{ row }">{{ formatPrizeName(row.prize_code) }}</template>
+              </el-table-column>
+              <el-table-column prop="member_name" label="成員" min-width="100" />
+              <el-table-column label="口數" min-width="70" align="right">
+                <template #default="{ row }">{{ unitCount(row.prize_code, row.applied_count) }} 口</template>
+              </el-table-column>
             </el-table>
 
             <el-pagination
@@ -189,7 +207,31 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, deleteUserSignEvents, previewUserRecords, previewUserFullRecords, previewUserPurchases, previewUserSignEvents, getAdminScrapeLogs, normalizeMemberNames } from '../api/index'
+import { getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, deleteUserSignEvents, deleteUserPrizes, previewUserRecords, previewUserFullRecords, previewUserPurchases, previewUserSignEvents, previewUserPrizes, getAdminScrapeLogs, normalizeMemberNames } from '../api/index'
+
+const GROUP_LABELS = { nogizaka46: '乃木坂46', sakurazaka46: '櫻坂46', hinatazaka46: '日向坂46' }
+function groupLabel(g) { return GROUP_LABELS[g] || g || '—' }
+
+// prize_code 是後端存的原始值，中文名稱只在這裡（顯示層）轉換，跟 FullPrizesView.vue 同一份對照表
+const PRIZE_NAMES = {
+  p_sign_photo:         '密藏生寫',
+  p_sign_solo_poster:   '個人簽名海報',
+  p_premium_sign_photo: '特別簽名生寫',
+}
+function formatPrizeName(code) {
+  return PRIZE_NAMES[code] || code
+}
+
+// applied_count 是枚數不是口數，密藏生寫／個人簽名海報都是 2 枚湊 1 口，跟 FullPrizesView.vue
+// 同一份換算表（見那邊的說明）
+const PRIZE_SHEETS_PER_UNIT = {
+  p_sign_photo:       2,
+  p_sign_solo_poster: 2,
+}
+function unitCount(code, count) {
+  const perUnit = PRIZE_SHEETS_PER_UNIT[code] || 1
+  return Math.round(count / perUnit)
+}
 
 const openSections = ref(['delete', 'fix', 'logs'])
 const normLoading = ref(false)
@@ -244,6 +286,15 @@ function clearPreview() {
   previewExecuted.value = false
 }
 
+// 商品抽選（prizes）沒有 event_date 欄位，不支援「指定日期範圍」模式；切過去時如果原本選的
+// 是 date 模式要退回全部，避免送出後端不支援、prizes 表也沒有的 date_from/date_to 參數
+function onRecordTypeChange() {
+  if (del.value.recordType === 'prizes' && del.value.mode === 'date') {
+    del.value.mode = 'all'
+  }
+  clearPreview()
+}
+
 async function queryPreview() {
   if (!del.value.userId) return
   previewLoading.value = true
@@ -263,6 +314,7 @@ async function loadPreviewPage() {
     'full-records': previewUserFullRecords,
     'purchases':    previewUserPurchases,
     'sign-events':  previewUserSignEvents,
+    'prizes':       previewUserPrizes,
   }
   const res = await fnMap[del.value.recordType](del.value.userId, params)
   previewData.value  = res.data.data  ?? []
@@ -279,7 +331,7 @@ async function loadUsers() {
 async function execDelete() {
   const user = users.value.find(u => u.id === del.value.userId)
   if (!user) return
-  const typeLabel = { records: '個握', 'full-records': '全握', purchases: '個握花費', 'sign-events': '簽名會' }[del.value.recordType] ?? '個握'
+  const typeLabel = { records: '個握', 'full-records': '全握', purchases: '個握花費', 'sign-events': '簽名會', prizes: '商品抽選' }[del.value.recordType] ?? '個握'
   try {
     await ElMessageBox.confirm(
       `確定要刪除 ${user.name}（${user.email}）的 ${typeLabel} 共 ${previewTotal.value} 筆資料？此操作無法復原。`,
@@ -288,7 +340,7 @@ async function execDelete() {
     )
   } catch { return }
   try {
-    const fnMap = { records: deleteUserRecords, 'full-records': deleteUserFullRecords, purchases: deleteUserPurchases, 'sign-events': deleteUserSignEvents }
+    const fnMap = { records: deleteUserRecords, 'full-records': deleteUserFullRecords, purchases: deleteUserPurchases, 'sign-events': deleteUserSignEvents, prizes: deleteUserPrizes }
     const res = await fnMap[del.value.recordType](del.value.userId, buildDelParams())
     ElMessage.success(`已刪除 ${res.data.deleted} 筆`)
     clearPreview()

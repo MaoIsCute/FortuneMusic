@@ -75,6 +75,18 @@ input:focus { border-color: #7c3aed; }
 }
 .status.connected { background: #ecfdf5; color: #065f46; }
 
+.update-banner {
+  font-size: 12px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  border-radius: 6px;
+  background: #fffbeb;
+  color: #92400e;
+  line-height: 1.5;
+}
+.update-banner a { color: #7c3aed; font-weight: 600; text-decoration: none; margin-left: 4px; }
+.update-banner a:hover { text-decoration: underline; }
+
 /* ── 進度區塊 ── */
 .progress-section {
   background: #f0f4ff;

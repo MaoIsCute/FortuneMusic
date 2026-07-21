@@ -20,6 +20,7 @@
           <a @click="go('/full/spending')">全握花費</a>
           <a @click="go('/full/analysis')">全握分析</a>
           <a @click="go('/full/sign-events')">簽名會紀錄</a>
+          <a @click="go('/full/prizes')">商品抽選紀錄</a>
         </div>
       </div>
 
@@ -33,6 +34,7 @@
           <a @click="go('/admin/titles')">單曲名稱</a>
           <a @click="go('/admin/venues')">場地管理</a>
           <a @click="go('/admin/sign-events')">簽名會紀錄</a>
+          <a @click="go('/admin/prizes')">商品抽選紀錄</a>
         </div>
       </div>
     </div>
@@ -51,7 +53,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
 
-const APP_VERSION = '1.6'
+const APP_VERSION = '1.8'
 
 const router = useRouter()
 const route  = useRoute()
@@ -60,7 +62,7 @@ const auth = useAuthStore()
 const isDark = computed(() => themeStore.isDark)
 const isAdmin = computed(() => !!auth.user?.is_admin)
 const isRecordsActive = computed(() => ['/records', '/spending', '/records/analysis'].includes(route.path))
-const isFullActive    = computed(() => ['/full', '/full/spending', '/full/analysis', '/full/sign-events'].includes(route.path))
+const isFullActive    = computed(() => ['/full', '/full/spending', '/full/analysis', '/full/sign-events', '/full/prizes'].includes(route.path))
 const isAdminActive   = computed(() => route.path.startsWith('/admin'))
 
 const openMenu = ref(null)

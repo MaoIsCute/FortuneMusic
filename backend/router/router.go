@@ -23,6 +23,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Impersonate-User", "X-Extension-Version"},
+		ExposeHeaders:    []string{"X-Latest-Extension-Version"},
 		AllowCredentials: true,
 	}))
 
@@ -55,10 +56,12 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/admin/users/:id/full-records/preview", handlers.PreviewUserFullRecords)
 		api.GET("/admin/users/:id/purchases/preview", handlers.PreviewUserPurchases)
 		api.GET("/admin/users/:id/sign-events/preview", handlers.PreviewUserSignEvents)
+		api.GET("/admin/users/:id/prizes/preview", handlers.PreviewUserPrizes)
 		api.DELETE("/admin/users/:id/records", handlers.DeleteUserRecords)
 		api.DELETE("/admin/users/:id/full-records", handlers.DeleteUserFullRecords)
 		api.DELETE("/admin/users/:id/purchases", handlers.DeleteUserPurchases)
 		api.DELETE("/admin/users/:id/sign-events", handlers.DeleteUserSignEvents)
+		api.DELETE("/admin/users/:id/prizes", handlers.DeleteUserPrizes)
 		api.POST("/admin/normalize-member-names", handlers.NormalizeMemberNames)
 		api.GET("/admin/title-issues", handlers.GetTitleIssues)
 		api.GET("/admin/titles", handlers.GetKnownTitles)
@@ -70,6 +73,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/admin/venues", handlers.GetKnownVenues)
 		api.GET("/admin/scrape-logs", handlers.GetAdminScrapeLogs)
 		api.GET("/admin/sign-events", handlers.GetAdminSignEvents)
+		api.GET("/admin/prizes", handlers.GetAdminPrizes)
 		api.GET("/scrape-token", handlers.GetScrapeToken)
 		api.POST("/scrape", handlers.TriggerScrape)
 		api.GET("/records", handlers.GetRecords)
@@ -81,6 +85,8 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/stats/detail", handlers.GetDetailStats)
 		api.GET("/stats/order-sequence", handlers.GetOrderSequenceStats)
 		api.GET("/sign-events", handlers.GetSignEvents)
+		api.GET("/prizes", handlers.GetPrizes)
+		api.PUT("/prizes/:id/result", handlers.UpdatePrizeResult)
 		api.GET("/full/records", handlers.GetFullRecords)
 		api.GET("/full/stats/overall", handlers.GetFullOverallStats)
 		api.GET("/full/stats/by-member", handlers.GetFullStatsByMember)

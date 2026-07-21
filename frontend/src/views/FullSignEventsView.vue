@@ -5,7 +5,7 @@
 
     <div class="card">
       <div class="filters">
-        <el-select v-model="filterGroup" placeholder="團體" clearable style="width:120px" @change="load">
+        <el-select v-model="filterGroup" placeholder="團體" clearable style="width:120px" @change="onGroupChange">
           <el-option label="乃木坂46" value="nogizaka46">
             <span :style="{ color: GROUP_COLORS.nogizaka46, fontWeight: 500 }">乃木坂46</span>
           </el-option>
@@ -16,10 +16,17 @@
             <span :style="{ color: GROUP_COLORS.hinatazaka46, fontWeight: 500 }">日向坂46</span>
           </el-option>
         </el-select>
-        <el-input v-model="filterMember" placeholder="成員名稱" clearable style="width:150px"
-          @change="load" @clear="load" />
-        <el-input v-model="filterSingle" placeholder="單曲號" clearable style="width:100px" type="number"
-          @change="load" @clear="load" />
+        <el-select v-model="filterMember" placeholder="選擇成員" clearable style="width:150px" @change="load">
+          <el-option v-for="m in filteredMemberOptions" :key="`${m.group}:${m.name}`" :label="m.name" :value="`${m.group}:${m.name}`">
+            <span :style="{ color: GROUP_COLORS[m.group] }">{{ m.name }}</span>
+          </el-option>
+        </el-select>
+        <el-select v-model="filterSingle" placeholder="單曲" clearable style="width:130px" @change="load">
+          <el-option v-for="s in filteredSingleOptions" :key="`${s.group}:${s.single_number}`"
+            :label="formatSingle(s.single_name) || `${s.single_number}單`" :value="`${s.group}:${s.single_number}`">
+            <span :style="{ color: GROUP_COLORS[s.group] }">{{ formatSingle(s.single_name) || `${s.single_number}單` }}</span>
+          </el-option>
+        </el-select>
       </div>
 
       <div v-if="rows.length === 0 && !loading" class="empty">尚無簽名會紀錄</div>
@@ -71,8 +78,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getSignEvents } from '../api/index'
+import { sortMembersByGroupAndGen } from '../utils/members'
 
 const GROUP_COLORS = { nogizaka46: '#9333ea', sakurazaka46: '#ec4899', hinatazaka46: '#0ea5e9' }
 const GROUP_LABELS = { nogizaka46: '乃木坂46', sakurazaka46: '櫻坂46', hinatazaka46: '日向坂46' }
@@ -95,6 +103,50 @@ const filterGroup  = ref('')
 const filterMember = ref('')
 const filterSingle = ref('')
 
+const memberList = ref([])
+const singleList = ref([])
+const GROUP_ORDER = { nogizaka46: 0, sakurazaka46: 1, hinatazaka46: 2 }
+
+const filteredMemberOptions = computed(() =>
+  filterGroup.value ? memberList.value.filter(m => m.group === filterGroup.value) : memberList.value
+)
+const filteredSingleOptions = computed(() =>
+  filterGroup.value ? singleList.value.filter(s => s.group === filterGroup.value) : singleList.value
+)
+
+// 簽名會沒有像全握那樣的 by-member/by-single 聚合統計端點，成員/單曲下拉的選項直接從
+// GetSignEvents 撈一批（page_size 用後端上限 100）湊出來，跟實際列表分頁各自獨立抓取。
+// 簽名會資料量目前遠低於 100 筆，這個上限暫時夠用；如果之後單一使用者的簽名會紀錄超過
+// 100 筆，下拉選項會少列出超過上限的那些單曲/成員（已知限制，屆時要再改成專用的聚合端點）
+async function reloadFilterLists() {
+  const res  = await getSignEvents({ page: 1, page_size: 100 })
+  const list = res.data.data ?? []
+
+  const nameGroupMap = new Map()
+  const singleMap    = new Map()
+  list.forEach(r => {
+    r.member_name.split('・').forEach(n => { n = n.trim(); if (n) nameGroupMap.set(n, r.group || '') })
+    const key = `${r.group}:${r.single_number}`
+    if (!singleMap.has(key)) singleMap.set(key, { group: r.group, single_number: r.single_number, single_name: r.single_name })
+  })
+
+  memberList.value = sortMembersByGroupAndGen([...nameGroupMap.entries()].map(([name, group]) => ({ name, group })))
+  singleList.value = [...singleMap.values()].sort((a, b) => {
+    const gd = (GROUP_ORDER[a.group] ?? 9) - (GROUP_ORDER[b.group] ?? 9)
+    return gd !== 0 ? gd : a.single_number - b.single_number
+  })
+}
+
+function onGroupChange() {
+  if (filterMember.value && !filteredMemberOptions.value.some(m => `${m.group}:${m.name}` === filterMember.value)) {
+    filterMember.value = ''
+  }
+  if (filterSingle.value && !filteredSingleOptions.value.some(s => `${s.group}:${s.single_number}` === filterSingle.value)) {
+    filterSingle.value = ''
+  }
+  load()
+}
+
 async function load() {
   page.value = 1
   await fetchPage()
@@ -104,9 +156,19 @@ async function fetchPage() {
   loading.value = true
   try {
     const params = { page: page.value, page_size: pageSize }
-    if (filterGroup.value)  params.group         = filterGroup.value
-    if (filterMember.value) params.member        = filterMember.value.trim()
-    if (filterSingle.value) params.single_number = filterSingle.value
+    if (filterGroup.value) params.group = filterGroup.value
+    if (filterMember.value) {
+      // 成員下拉的 value 是 "group:member_name" 組合字串，單曲下拉同理，避免三個團體號碼/
+      // 名稱重疊時跨團體撈錯資料，跟 FullView.vue 同一套做法（見 CLAUDE.md #125/#126）
+      const [mGroup, mName] = filterMember.value.split(':')
+      params.group  = mGroup
+      params.member = mName
+    }
+    if (filterSingle.value) {
+      const [sGroup, sNum] = filterSingle.value.split(':')
+      params.group         = sGroup
+      params.single_number = sNum
+    }
     const res = await getSignEvents(params)
     rows.value  = res.data.data ?? []
     total.value = res.data.total ?? 0
@@ -115,7 +177,10 @@ async function fetchPage() {
   }
 }
 
-onMounted(fetchPage)
+onMounted(async () => {
+  await reloadFilterLists()
+  await fetchPage()
+})
 </script>
 
 <style scoped>

@@ -11,8 +11,28 @@
         <el-select v-model="signFilter.userId" placeholder="篩選使用者" clearable style="width:200px" @change="signPage=1;loadSignEvents()">
           <el-option v-for="u in users" :key="u.id" :label="`${u.name} (${u.email})`" :value="u.id" />
         </el-select>
-        <el-input v-model="signFilter.member" placeholder="成員名稱" clearable style="width:150px" @change="signPage=1;loadSignEvents()" />
-        <el-input v-model="signFilter.singleNumber" placeholder="單曲號" clearable style="width:100px" type="number" @change="signPage=1;loadSignEvents()" />
+        <el-select v-model="signFilter.group" placeholder="團體" clearable style="width:120px" @change="onGroupChange">
+          <el-option label="乃木坂46" value="nogizaka46">
+            <span :style="{ color: GROUP_COLORS.nogizaka46, fontWeight: 500 }">乃木坂46</span>
+          </el-option>
+          <el-option label="櫻坂46" value="sakurazaka46">
+            <span :style="{ color: GROUP_COLORS.sakurazaka46, fontWeight: 500 }">櫻坂46</span>
+          </el-option>
+          <el-option label="日向坂46" value="hinatazaka46">
+            <span :style="{ color: GROUP_COLORS.hinatazaka46, fontWeight: 500 }">日向坂46</span>
+          </el-option>
+        </el-select>
+        <el-select v-model="signFilter.member" placeholder="成員" clearable style="width:130px" @change="signPage=1;loadSignEvents()">
+          <el-option v-for="m in filteredMemberOptions" :key="`${m.group}:${m.name}`" :label="m.name" :value="`${m.group}:${m.name}`">
+            <span :style="{ color: GROUP_COLORS[m.group], fontWeight: 500 }">{{ m.name }}</span>
+          </el-option>
+        </el-select>
+        <el-select v-model="signFilter.singleNumber" placeholder="單曲" clearable style="width:120px" @change="signPage=1;loadSignEvents()">
+          <el-option v-for="s in filteredSingleOptions" :key="`${s.group}:${s.single_number}`"
+            :label="`${s.single_number}單`" :value="`${s.group}:${s.single_number}`">
+            <span :style="{ color: GROUP_COLORS[s.group], fontWeight: 500 }">{{ s.single_number }}單</span>
+          </el-option>
+        </el-select>
       </div>
       <div v-if="signEvents.length === 0" class="empty">尚無簽名會紀錄</div>
       <el-table table-layout="auto" v-else :data="signEvents" stripe>
@@ -55,15 +75,27 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getAdminUsers, getAdminSignEvents } from '../api/index'
+
+const GROUP_COLORS = { nogizaka46: '#9333ea', sakurazaka46: '#ec4899', hinatazaka46: '#0ea5e9' }
 
 const users      = ref([])
 const signEvents  = ref([])
 const signTotal   = ref(0)
 const signPage    = ref(1)
 const signPageSize = 50
-const signFilter  = ref({ userId: null, member: '', singleNumber: '' })
+const signFilter  = ref({ userId: null, group: '', member: '', singleNumber: '' })
+
+const memberOptions = ref([])
+const singleOptions = ref([])
+
+const filteredMemberOptions = computed(() =>
+  signFilter.value.group ? memberOptions.value.filter(m => m.group === signFilter.value.group) : memberOptions.value
+)
+const filteredSingleOptions = computed(() =>
+  signFilter.value.group ? singleOptions.value.filter(s => s.group === signFilter.value.group) : singleOptions.value
+)
 
 async function loadUsers() {
   try {
@@ -79,12 +111,54 @@ function formatSingle(name) {
     .replace(/(\d+)(?:st|nd|rd|th)アルバム/, (_, n) => `${n}專`)
 }
 
+// 管理者這頁看的是所有使用者的簽名會紀錄，沒有專屬的 by-member/by-single 聚合端點，成員/單曲
+// 下拉選項直接從 GetAdminSignEvents 撈一批（page_size 用後端上限 100）湊出來，跟個人版
+// FullSignEventsView.vue 同一套做法；選項的 value 是 "group:member_name"/"group:single_number"
+// 組合字串，避免三個團體號碼/名稱重疊時跨團體撈錯資料（見 CLAUDE.md #125/#126）
+async function reloadFilterLists() {
+  const res  = await getAdminSignEvents({ page: 1, page_size: 100 })
+  const list = res.data.data ?? []
+
+  const nameGroupMap = new Map()
+  const singleMap    = new Map()
+  list.forEach(r => {
+    r.member_name.split('・').forEach(n => { n = n.trim(); if (n) nameGroupMap.set(n, r.group || '') })
+    const key = `${r.group}:${r.single_number}`
+    if (!singleMap.has(key)) singleMap.set(key, { group: r.group, single_number: r.single_number })
+  })
+
+  memberOptions.value = [...nameGroupMap.entries()]
+    .map(([name, group]) => ({ name, group }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ja'))
+  singleOptions.value = [...singleMap.values()].sort((a, b) => a.single_number - b.single_number)
+}
+
+function onGroupChange() {
+  if (signFilter.value.member && !filteredMemberOptions.value.some(m => `${m.group}:${m.name}` === signFilter.value.member)) {
+    signFilter.value.member = ''
+  }
+  if (signFilter.value.singleNumber && !filteredSingleOptions.value.some(s => `${s.group}:${s.single_number}` === signFilter.value.singleNumber)) {
+    signFilter.value.singleNumber = ''
+  }
+  signPage.value = 1
+  loadSignEvents()
+}
+
 async function loadSignEvents() {
   try {
     const params = { page: signPage.value, page_size: signPageSize }
     if (signFilter.value.userId) params.user_id = signFilter.value.userId
-    if (signFilter.value.member.trim()) params.member = signFilter.value.member.trim()
-    if (signFilter.value.singleNumber) params.single_number = signFilter.value.singleNumber
+    if (signFilter.value.group)  params.group   = signFilter.value.group
+    if (signFilter.value.member) {
+      const [mGroup, mName] = signFilter.value.member.split(':')
+      params.group  = mGroup
+      params.member = mName
+    }
+    if (signFilter.value.singleNumber) {
+      const [sGroup, sNum] = signFilter.value.singleNumber.split(':')
+      params.group         = sGroup
+      params.single_number = sNum
+    }
     const res = await getAdminSignEvents(params)
     signEvents.value = res.data.data ?? []
     signTotal.value  = res.data.total ?? 0
@@ -93,6 +167,7 @@ async function loadSignEvents() {
 
 onMounted(() => {
   loadUsers()
+  reloadFilterLists()
   loadSignEvents()
 })
 </script>
