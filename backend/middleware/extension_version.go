@@ -19,7 +19,7 @@ const MinExtensionVersion = "2.1"
 // popup.js 的 backendFetch() 統一比對並顯示提醒，才會在使用者實際操作的路徑上被看到。
 // 每次 bump manifest.json 版本號時，這裡要跟 status.json 的 latest_extension_version
 // 一起改成同一個數字。
-const LatestExtensionVersion = "2.4"
+const LatestExtensionVersion = "2.5"
 
 // ExtensionVersionRequired 擋掉版本過舊（或完全沒帶版本號，代表是這個機制上線前的舊擴充功能）的同步請求，
 // 避免舊版持續送進已知有問題的資料，需要事後再花力氣 migration 修正；同時在每個回應都附上目前最新版本號

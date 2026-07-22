@@ -540,8 +540,13 @@ scrapeBtn.addEventListener('click', async () => {
   const allFailedEntries = []
 
   try {
-    const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/apply_list/*' })
-    if (tabs.length === 0) throw new Error('找不到申請列表分頁，請先點「同步」開啟頁面，確認登入後再試')
+    // 分頁被關掉時自動重開（跟全握「開始全握抓取」同一套做法），不用使用者手動再點一次「同步」
+    let tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/apply_list/*' })
+    if (tabs.length === 0) {
+      const tabId = await getOrOpenFortuneMusicTab('/mypage/apply_list/')
+      await waitForTabLoad(tabId)
+      tabs = [{ id: tabId }]
+    }
 
     while (true) {
       if (isStopping) break
@@ -784,31 +789,38 @@ function setFullWaitingMode(on) {
   fullScrapeBtn.style.display = on ? 'block' : 'none'
 }
 
+// 開啟（或重用既有）ticket.fortunemeets.app 分頁，回傳 tabId；新開分頁時等待載入完成
+// （最多 8 秒，避免頁面異常時卡住）。全握同步、開始抓取（分頁被關掉時自動重開）都共用這支
+async function openTicketTab(group, num, forceNavigate) {
+  const openUrl = `https://ticket.fortunemeets.app/${group}/${num}${ordinalSuffix(num)}#/history`
+
+  const tabs = await chrome.tabs.query({ url: 'https://ticket.fortunemeets.app/*' })
+  if (tabs.length > 0) {
+    const tabId = tabs[0].id
+    if (forceNavigate) await chrome.tabs.update(tabId, { url: openUrl, active: true })
+    return tabId
+  }
+
+  const tab = await chrome.tabs.create({ url: openUrl, active: true })
+  const tabId = tab.id
+  await new Promise(resolve => {
+    function onUpdated(id, info) {
+      if (id === tabId && info.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(onUpdated)
+        resolve()
+      }
+    }
+    chrome.tabs.onUpdated.addListener(onUpdated)
+    setTimeout(() => { chrome.tabs.onUpdated.removeListener(onUpdated); resolve() }, 8000)
+  })
+  return tabId
+}
+
 // 步驟一：開啟 ticket.fortunemeets.app，讀取並儲存 lscache-id
 fullSyncBtn.addEventListener('click', async () => {
   const group   = fullGroupEl.value || 'nogizaka46'
   const openNum = parseInt(fullStartEl.value) || parseInt(fullEndEl.value) || 1
-  const openUrl = `https://ticket.fortunemeets.app/${group}/${openNum}${ordinalSuffix(openNum)}#/history`
-
-  const tabs = await chrome.tabs.query({ url: 'https://ticket.fortunemeets.app/*' })
-  let tabId
-  if (tabs.length > 0) {
-    tabId = tabs[0].id
-    await chrome.tabs.update(tabId, { url: openUrl, active: true })
-  } else {
-    const tab = await chrome.tabs.create({ url: openUrl, active: true })
-    tabId = tab.id
-    await new Promise(resolve => {
-      function onUpdated(id, info) {
-        if (id === tabId && info.status === 'complete') {
-          chrome.tabs.onUpdated.removeListener(onUpdated)
-          resolve()
-        }
-      }
-      chrome.tabs.onUpdated.addListener(onUpdated)
-      setTimeout(() => { chrome.tabs.onUpdated.removeListener(onUpdated); resolve() }, 8000)
-    })
-  }
+  const tabId   = await openTicketTab(group, openNum, true)
 
   const result = await chrome.scripting.executeScript({
     target: { tabId },
@@ -861,13 +873,6 @@ fullScrapeBtn.addEventListener('click', async () => {
     return
   }
 
-  const ticketTabs = await chrome.tabs.query({ url: 'https://ticket.fortunemeets.app/*' })
-  if (ticketTabs.length === 0) {
-    showResult('error', '請先點「全握同步」開啟 ticket.fortunemeets.app')
-    return
-  }
-  const tabId = ticketTabs[0].id
-
   const group    = fullGroupEl.value || 'nogizaka46'
   const startNum = parseInt(fullStartEl.value) || 1
   const endNum   = parseInt(fullEndEl.value)   || 0
@@ -876,6 +881,11 @@ fullScrapeBtn.addEventListener('click', async () => {
     showResult('error', `結束單（${endNum}）不能小於起始單（${startNum}）`)
     return
   }
+
+  // 分頁被關掉（例如使用者關掉網頁、關掉瀏覽器再打開）時，之前存的 userId 還在、session cookie
+  // 通常也還有效，只是缺一個活著的分頁讓 fetch 用瀏覽器 session 執行——自動重開，不用使用者
+  // 手動再點一次「全握同步」重新走一次讀取 lscache-id 的流程
+  const tabId = await openTicketTab(group, startNum)
 
   fullScrapeBtn.disabled    = true
   fullScrapeBtn.textContent = '抓取中...'
@@ -1257,8 +1267,13 @@ purchaseScrapeBtn.addEventListener('click', async () => {
   const MAX_RATE_LIMIT_RETRIES = 3
 
   try {
-    const tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/entry_list/*' })
-    if (tabs.length === 0) throw new Error('找不到購入記錄分頁，請先點「同步」開啟頁面，確認登入後再試')
+    // 分頁被關掉時自動重開（跟全握「開始全握抓取」同一套做法），不用使用者手動再點一次「同步」
+    let tabs = await chrome.tabs.query({ url: 'https://fortunemusic.jp/mypage/entry_list/*' })
+    if (tabs.length === 0) {
+      const tabId = await getOrOpenFortuneMusicTab('/mypage/entry_list/')
+      await waitForTabLoad(tabId)
+      tabs = [{ id: tabId }]
+    }
 
     // 階段一：掃描所有列表頁（不做任何 detail fetch）
     const allEntries = []
