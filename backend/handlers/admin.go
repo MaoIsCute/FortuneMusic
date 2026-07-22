@@ -352,6 +352,8 @@ type AdminUser struct {
 	RecordCount     int64      `json:"record_count"`
 	PurchaseCount   int64      `json:"purchase_count"`
 	FullRecordCount int64      `json:"full_record_count"`
+	SignEventCount  int64      `json:"sign_event_count"`
+	PrizeCount      int64      `json:"prize_count"`
 	LastScraped     *time.Time `json:"last_scraped"`
 }
 
@@ -360,13 +362,16 @@ func GetAdminUsers(c *gin.Context) {
 		return
 	}
 	var users []AdminUser
-	// 花費（purchases）/全握（full_records）筆數各自用獨立的相關子查詢算，不能跟 records 一樣直接
-	// LEFT JOIN 進同一個 SELECT——一次 JOIN 三張一對多的表會互相撐開成笛卡兒積，COUNT 出來的筆數會不準
+	// 花費（purchases）/全握（full_records）/簽名會（sign_events）/商品抽選（prizes）筆數
+	// 各自用獨立的相關子查詢算，不能跟 records 一樣直接 LEFT JOIN 進同一個 SELECT——
+	// 一次 JOIN 多張一對多的表會互相撐開成笛卡兒積，COUNT 出來的筆數會不準
 	db.DB.Model(&models.User{}).
 		Select(`users.id, users.email, users.name,
 			(SELECT COUNT(*) FROM records WHERE records.user_id = users.id) as record_count,
 			(SELECT COUNT(*) FROM purchases WHERE purchases.user_id = users.id) as purchase_count,
 			(SELECT COUNT(*) FROM full_records WHERE full_records.user_id = users.id) as full_record_count,
+			(SELECT COUNT(*) FROM sign_events WHERE sign_events.user_id = users.id) as sign_event_count,
+			(SELECT COUNT(*) FROM prizes WHERE prizes.user_id = users.id) as prize_count,
 			(SELECT MAX(records.scraped_at) FROM records WHERE records.user_id = users.id) as last_scraped`).
 		Order("users.id").
 		Scan(&users)

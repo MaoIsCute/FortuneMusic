@@ -13,6 +13,8 @@
         <el-table-column prop="record_count" label="個握筆數" min-width="80" />
         <el-table-column prop="purchase_count" label="花費筆數" min-width="80" />
         <el-table-column prop="full_record_count" label="全握筆數" min-width="80" />
+        <el-table-column prop="sign_event_count" label="簽名會筆數" min-width="90" />
+        <el-table-column prop="prize_count" label="商品抽選筆數" min-width="100" />
         <el-table-column label="最後同步" min-width="160">
           <template #default="{ row }">
             {{ row.last_scraped ? row.last_scraped.replace('T', ' ').slice(0, 16) : '—' }}
