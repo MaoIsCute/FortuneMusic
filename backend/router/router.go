@@ -27,7 +27,12 @@ func Setup(cfg *config.Config) *gin.Engine {
 		AllowCredentials: true,
 	}))
 
-	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
+	// Gin 不像 net/http 的 ServeMux 會自動把 HEAD 導到同路徑的 GET handler，兩個方法要分開註冊；
+	// UptimeRobot 的 HTTP(s) monitor 預設是送 HEAD 請求，只註冊 GET 的話 HEAD 會直接 404（連
+	// handler 都沒被呼叫到），導致監控其實沒有真的碰到後端、Render 免費方案還是會照樣休眠
+	healthCheck := func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) }
+	r.GET("/health", healthCheck)
+	r.HEAD("/health", healthCheck)
 
 	r.GET("/auth/google", handlers.GoogleLogin(cfg))
 	r.GET("/auth/google/callback", handlers.GoogleCallback(cfg))
