@@ -55,7 +55,8 @@
         </el-table-column>
         <el-table-column label="結果" min-width="75" align="center">
           <template #default="{ row }">
-            <span :class="row.won_count > 0 ? 'tag-won' : 'tag-lost'">
+            <span v-if="row.pending" class="tag-pending">抽選中</span>
+            <span v-else :class="row.won_count > 0 ? 'tag-won' : 'tag-lost'">
               {{ row.won_count > 0 ? '中選' : '落選' }}
             </span>
           </template>
@@ -188,7 +189,8 @@ onMounted(() => {
 .sub-text { font-size: 11px; color: #999; }
 html.dark .card       { background: #1e2030; border-color: #2e3450; box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
 html.dark .card-title { color: #e8eaf0; }
-.tag-won   { color: #52c41a; font-weight: bold; }
-.tag-lost  { color: #ff4d4f; font-weight: bold; }
+.tag-won     { color: #52c41a; font-weight: bold; }
+.tag-lost    { color: #ff4d4f; font-weight: bold; }
+.tag-pending { color: #999; }
 .filter-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
 </style>

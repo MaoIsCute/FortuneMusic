@@ -206,6 +206,7 @@ func GetGlobalFullOverallStats(c *gin.Context) {
 		TotalWon     int `json:"total_won"`
 	}
 	db.DB.Model(&models.FullRecord{}).
+		Where("pending = ?", false).
 		Select("COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won").
 		Scan(&overall)
 
@@ -218,6 +219,7 @@ func GetGlobalFullOverallStats(c *gin.Context) {
 	}
 	var byType []TypeVenueRow
 	db.DB.Model(&models.FullRecord{}).
+		Where("pending = ?", false).
 		Select("event_type, venue, SUM(applied_count) as total_applied, SUM(won_count) as total_won, " +
 			"ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count),0) * 100, 1) as win_rate").
 		Group("event_type, venue").
@@ -233,7 +235,7 @@ func GetGlobalFullOverallStats(c *gin.Context) {
 
 // GetGlobalFullStatsByMember 跟 GetFullStatsByMember 同一套查詢，不篩 user_id
 func GetGlobalFullStatsByMember(c *gin.Context) {
-	query := db.DB.Model(&models.FullRecord{})
+	query := db.DB.Model(&models.FullRecord{}).Where("pending = ?", false)
 	if grp := c.Query("group"); grp != "" {
 		query = query.Where(`"group" = ?`, grp)
 	}
@@ -274,7 +276,7 @@ func GetGlobalFullStatsByRegion(c *gin.Context) {
 		WinRate      float64 `json:"win_rate"`
 	}
 
-	query := db.DB.Model(&models.FullRecord{}).Where("event_type = '実体'")
+	query := db.DB.Model(&models.FullRecord{}).Where("event_type = '実体' AND pending = ?", false)
 	if grp := c.Query("group"); grp != "" {
 		query = query.Where(`"group" = ?`, grp)
 	}
@@ -303,7 +305,7 @@ func GetGlobalFullDetailStats(c *gin.Context) {
 		TotalWon     int     `json:"total_won"`
 	}
 
-	query := db.DB.Model(&models.FullRecord{})
+	query := db.DB.Model(&models.FullRecord{}).Where("pending = ?", false)
 	if m := c.Query("member"); m != "" {
 		query = query.Where("member_name LIKE ?", "%"+m+"%")
 	}

@@ -123,8 +123,16 @@ func Init(cfg *config.Config) {
 		END $$;
 	`)
 
-	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.SignEvent{}, &models.Purchase{}, &models.ScrapeLog{}, &models.Title{}, &models.Venue{}, &models.Prize{}); err != nil {
+	if err := DB.AutoMigrate(&models.User{}, &models.Record{}, &models.FullRecord{}, &models.SignEvent{}, &models.Purchase{}, &models.ScrapeLog{}, &models.Title{}, &models.Venue{}, &models.Prize{}, &models.SiteStatus{}); err != nil {
 		log.Fatal("AutoMigrate failed:", err)
+	}
+
+	// full_records/sign_events 新增的 pending 欄位（bool）AutoMigrate ADD COLUMN 沒有帶 DEFAULT，
+	// 既有資料列的值會是 NULL，不是 false——後端統計查詢用 `pending = false` 篩選，SQL 裡
+	// `NULL = false` 的結果是 NULL（不成立），會把所有既有資料整批排除掉，必須補一次性回填
+	// 成 false（冪等，只影響 NULL 的列，跟這個欄位本身「不知道就當作已確定」的預設語意一致）
+	for _, tbl := range []string{"full_records", "sign_events"} {
+		DB.Exec(`UPDATE ` + tbl + ` SET pending = false WHERE pending IS NULL`)
 	}
 
 	// 回填既有記錄的 order_id（冪等，只更新空值）

@@ -12,6 +12,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// isSignOrderID 判斷 order_id 是不是簽名會（單一成員 "_sign" 或全員參加 "_allsign"），
+// 不是的話就當成一般全握（FullRecord）處理。
+func isSignOrderID(orderID string) bool {
+	return strings.Contains(orderID, "_sign") || strings.Contains(orderID, "_allsign")
+}
+
 // PrizePayload 是「商品抽選」類獎品（生寫/海報等）的上傳格式，見 models.Prize 的說明。
 type PrizePayload struct {
 	Group        string `json:"group"`
@@ -34,6 +40,7 @@ func PushFullRecords(c *gin.Context) {
 		MemberName   string  `json:"member_name"`
 		AppliedCount int     `json:"applied_count"`
 		WonCount     int     `json:"won_count"`
+		Pending      bool    `json:"pending"`
 		LotteryRound float64 `json:"lottery_round"`
 		SourceURL    string  `json:"source_url"`
 	}
@@ -81,7 +88,7 @@ func PushFullRecords(c *gin.Context) {
 	// 先依 order_id 分流，批次查出已存在的記錄，避免在迴圈中逐筆查詢
 	var signIDs, fullIDs []string
 	for _, r := range req.Records {
-		if strings.Contains(r.OrderID, "_sign") {
+		if isSignOrderID(r.OrderID) {
 			signIDs = append(signIDs, r.OrderID)
 		} else {
 			fullIDs = append(fullIDs, r.OrderID)
@@ -111,7 +118,7 @@ func PushFullRecords(c *gin.Context) {
 	newFulls := map[string]models.FullRecord{}
 
 	for _, r := range req.Records {
-		if strings.Contains(r.OrderID, "_sign") {
+		if isSignOrderID(r.OrderID) {
 			if existing, ok := signMap[r.OrderID]; ok {
 				changed := map[string]any{}
 				if existing.AppliedCount != r.AppliedCount {
@@ -119,6 +126,9 @@ func PushFullRecords(c *gin.Context) {
 				}
 				if existing.WonCount != r.WonCount {
 					changed["won_count"] = r.WonCount
+				}
+				if existing.Pending != r.Pending {
+					changed["pending"] = r.Pending
 				}
 				if correctedName := resolveSingleName(existing.Group, existing.SingleNumber, r.SingleName); existing.SingleName != correctedName {
 					changed["single_name"] = correctedName
@@ -160,6 +170,7 @@ func PushFullRecords(c *gin.Context) {
 				MemberName:   normalizeMember(r.MemberName),
 				AppliedCount: r.AppliedCount,
 				WonCount:     r.WonCount,
+				Pending:      r.Pending,
 				LotteryRound: r.LotteryRound,
 				ScrapedAt:    now,
 			}
@@ -211,6 +222,7 @@ func PushFullRecords(c *gin.Context) {
 			MemberName:   normalizeMember(r.MemberName),
 			AppliedCount: r.AppliedCount,
 			WonCount:     r.WonCount,
+			Pending:      r.Pending,
 			LotteryRound: r.LotteryRound,
 			SourceURL:    r.SourceURL,
 			ScrapedAt:    now,

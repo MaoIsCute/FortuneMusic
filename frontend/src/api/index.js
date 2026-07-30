@@ -119,6 +119,8 @@ export const getAdminPrizes = (params = {}) => api.get('/api/admin/prizes', { pa
 export const getSignEvents = (params = {}) => api.get('/api/sign-events', { params })
 export const getPrizes = (params = {}) => api.get('/api/prizes', { params })
 export const updatePrizeResult = (id, wonStatus) => api.put(`/api/prizes/${id}/result`, { won_status: wonStatus })
+export const getStatus = () => api.get('/status')
+export const updateStatus = (maintenance, message) => api.put('/api/admin/status', { maintenance, message })
 export const getGlobalOverallStats = () => api.get('/api/global/stats/overall')
 export const getGlobalDetailStats = (params = {}) => api.get('/api/global/stats/detail', { params })
 export const getGlobalOrderSequenceStats = (params = {}) => api.get('/api/global/stats/order-sequence', { params })

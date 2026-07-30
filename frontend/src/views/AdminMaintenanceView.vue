@@ -106,7 +106,8 @@
               </el-table-column>
               <el-table-column label="結果" min-width="55" align="center">
                 <template #default="{ row }">
-                  <span :class="row.won_count > 0 ? 'tag-won' : 'tag-lost'">{{ row.won_count > 0 ? '中選' : '落選' }}</span>
+                  <span v-if="row.pending" class="tag-pending">抽選中</span>
+                  <span v-else :class="row.won_count > 0 ? 'tag-won' : 'tag-lost'">{{ row.won_count > 0 ? '中選' : '落選' }}</span>
                 </template>
               </el-table-column>
             </el-table>
@@ -171,6 +172,17 @@
         </div>
       </el-collapse-item>
 
+      <!-- 維護模式 -->
+      <el-collapse-item name="maintenance">
+        <template #title><span class="collapse-title">維護模式</span></template>
+        <div class="maintenance-row">
+          <el-switch v-model="statusForm.maintenance" active-text="維護中" inactive-text="正常" />
+          <el-input v-model="statusForm.message" placeholder="維護提示訊息" style="max-width:360px" />
+          <el-button type="primary" :loading="statusSaving" @click="saveStatus">儲存</el-button>
+        </div>
+        <div class="hint-text">開啟後，所有使用者（含你自己）進站都會立刻被導向維護畫面，直到關閉為止，不需要重新部署。</div>
+      </el-collapse-item>
+
       <!-- 抓取紀錄 -->
       <el-collapse-item name="logs">
         <template #title>
@@ -207,7 +219,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, deleteUserSignEvents, deleteUserPrizes, previewUserRecords, previewUserFullRecords, previewUserPurchases, previewUserSignEvents, previewUserPrizes, getAdminScrapeLogs, normalizeMemberNames } from '../api/index'
+import { getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, deleteUserSignEvents, deleteUserPrizes, previewUserRecords, previewUserFullRecords, previewUserPurchases, previewUserSignEvents, previewUserPrizes, getAdminScrapeLogs, normalizeMemberNames, getStatus, updateStatus } from '../api/index'
 
 const GROUP_LABELS = { nogizaka46: '乃木坂46', sakurazaka46: '櫻坂46', hinatazaka46: '日向坂46' }
 function groupLabel(g) { return GROUP_LABELS[g] || g || '—' }
@@ -233,9 +245,32 @@ function unitCount(code, count) {
   return Math.round(count / perUnit)
 }
 
-const openSections = ref(['delete', 'fix', 'logs'])
+const openSections = ref(['delete', 'fix', 'maintenance', 'logs'])
 const normLoading = ref(false)
 const normResult  = ref(null)
+
+const statusForm   = ref({ maintenance: false, message: '' })
+const statusSaving = ref(false)
+
+async function loadStatus() {
+  try {
+    const res = await getStatus()
+    statusForm.value.maintenance = res.data.maintenance
+    statusForm.value.message     = res.data.message || ''
+  } catch {}
+}
+
+async function saveStatus() {
+  statusSaving.value = true
+  try {
+    await updateStatus(statusForm.value.maintenance, statusForm.value.message)
+    ElMessage.success('已更新')
+  } catch {
+    ElMessage.error('更新失敗')
+  } finally {
+    statusSaving.value = false
+  }
+}
 
 async function runNormalize() {
   normLoading.value = true
@@ -373,6 +408,7 @@ async function loadScrapeLogs() {
 onMounted(() => {
   loadUsers()
   loadScrapeLogs()
+  loadStatus()
 })
 </script>
 
@@ -408,10 +444,12 @@ onMounted(() => {
 .delete-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .fix-row { display: flex; align-items: center; gap: 16px; }
 .fix-desc { font-size: 13px; color: #555; flex: 1; }
+.maintenance-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 10px; }
 .norm-result { margin-top: 10px; font-size: 13px; color: #059669; }
 .sub-text { font-size: 11px; color: #999; }
 .tag-ok    { color: #059669; font-size: 13px; }
 .tag-error { color: #dc2626; font-size: 13px; }
-.tag-won   { color: #52c41a; font-weight: bold; }
-.tag-lost  { color: #ff4d4f; font-weight: bold; }
+.tag-won     { color: #52c41a; font-weight: bold; }
+.tag-lost    { color: #ff4d4f; font-weight: bold; }
+.tag-pending { color: #999; }
 </style>

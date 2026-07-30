@@ -19,7 +19,7 @@ import MaintenanceView from './views/MaintenanceView.vue'
 import { useThemeStore } from './stores/theme'
 import { useAuthStore } from './stores/auth'
 import { useImpersonateStore } from './stores/impersonate'
-import { getMe } from './api/index'
+import { getMe, getStatus } from './api/index'
 
 const themeStore = useThemeStore()
 const auth = useAuthStore()
@@ -28,17 +28,12 @@ const impersonate = useImpersonateStore()
 const maintenance    = ref(false)
 const maintenanceMsg = ref('系統維護中，請稍後再試。')
 
-const STATUS_URL = import.meta.env.DEV
-  ? '/status.json'
-  : 'https://raw.githubusercontent.com/MaoIsCute/FortuneMusic/main/status.json'
-
 onMounted(async () => {
   try {
-    const res = await fetch(STATUS_URL + '?t=' + Date.now())
-    const data = await res.json()
-    if (data.maintenance) {
+    const res = await getStatus()
+    if (res.data.maintenance) {
       maintenance.value    = true
-      maintenanceMsg.value = data.message || maintenanceMsg.value
+      maintenanceMsg.value = res.data.message || maintenanceMsg.value
       return
     }
   } catch {}

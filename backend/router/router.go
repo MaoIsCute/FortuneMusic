@@ -34,6 +34,10 @@ func Setup(cfg *config.Config) *gin.Engine {
 	r.GET("/health", healthCheck)
 	r.HEAD("/health", healthCheck)
 
+	// 公開端點，取代原本前端讀 GitHub raw status.json 的做法（repo 改 private 後那個
+	// 公開網址會失效）；維護模式開關、擴充功能最新版本號都從這裡取得
+	r.GET("/status", handlers.GetStatus)
+
 	r.GET("/auth/google", handlers.GoogleLogin(cfg))
 	r.GET("/auth/google/callback", handlers.GoogleCallback(cfg))
 	r.POST("/auth/token", handlers.ExchangeToken)
@@ -79,6 +83,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/admin/scrape-logs", handlers.GetAdminScrapeLogs)
 		api.GET("/admin/sign-events", handlers.GetAdminSignEvents)
 		api.GET("/admin/prizes", handlers.GetAdminPrizes)
+		api.PUT("/admin/status", handlers.UpdateStatus)
 		api.GET("/scrape-token", handlers.GetScrapeToken)
 		api.POST("/scrape", handlers.TriggerScrape)
 		api.GET("/records", handlers.GetRecords)

@@ -16,11 +16,11 @@
 - 不要主動執行 `git commit` 或 `git push`，只有使用者明確下「commit」「push」「提交」「推上去」之類的指令時才執行。
 - 一旦下達 commit/push 指令，請一路完成 add → commit → push，中途不要停下來逐步詢問。
 - commit message 用繁體中文，格式參考現有 commit 風格（`git log` 可查）。
-- 若這次改動有碰到 `extension/` 底下任何檔案，commit 前要重新打包 `FTExtension.zip`（直接壓縮 `extension/` 資料夾內容，檔案要在 zip 根目錄、不要多包一層 `extension` 資料夾——用 `Compress-Archive -Path extension\* -DestinationPath FTExtension.zip -Force`），否則使用者下載到的會是舊版擴充功能。
+- 若這次改動有碰到 `extension/` 底下任何檔案，commit 前要重新打包 `FTExtension.zip`（直接壓縮 `extension/` 資料夾內容，檔案要在 zip 根目錄、不要多包一層 `extension` 資料夾——用 `Compress-Archive -Path extension\* -DestinationPath frontend\public\FTExtension.zip -Force`），否則使用者下載到的會是舊版擴充功能。**打包目的地是 `frontend/public/FTExtension.zip`**（見 #130，repo 改 private 後不能再放 repo 根目錄靠 GitHub raw 網址下載，改成跟著前端一起部署，網址是 `https://fortunemusic.vercel.app/FTExtension.zip`）。
 - 版本號：commit 前若有異動，各自更新：
-  - 有改 `extension/` 檔案 → 更新 `extension/manifest.json` 的 `"version"`，**同時**更新 `status.json`（repo 根目錄 + `frontend/public/status.json`）的 `"latest_extension_version"` 為同一個版本號，否則已安裝舊版的使用者不會被提醒更新（見「已修正的問題」#97）；如果這次改動會讓後端拒絕舊版請求（例如修正資料正確性的 bug），也要一併把 `backend/middleware/extension_version.go` 的 `MinExtensionVersion` 常數提高到同一個版本號，否則舊版擴充功能還是能正常同步（見 #98）
+  - 有改 `extension/` 檔案 → 更新 `extension/manifest.json` 的 `"version"`，**同時**更新 `backend/middleware/extension_version.go` 的 `LatestExtensionVersion` 常數為同一個版本號，否則已安裝舊版的使用者不會被提醒更新（見「已修正的問題」#97/#130）；如果這次改動會讓後端拒絕舊版請求（例如修正資料正確性的 bug），也要一併把同檔案的 `MinExtensionVersion` 常數提高到同一個版本號，否則舊版擴充功能還是能正常同步（見 #98）
   - 有改 `frontend/` 檔案 → 更新 `frontend/src/components/NavBar.vue` 的 `APP_VERSION`
-  - 三者互相獨立，不需強制同步（但 `manifest.json`／`status.json` 的 `latest_extension_version`／`MinExtensionVersion` 這幾個一定要一起改成同一個數字）
+  - 三者互相獨立，不需強制同步（但 `manifest.json`／`LatestExtensionVersion`／`MinExtensionVersion` 這幾個一定要一起改成同一個數字）
   - **版本號進位陷阱**：版本比對是用 `parseFloat`/`strconv.ParseFloat` 把版本字串當數字比較，小數點後只能到 9——如果照 +0.1 的慣例從 1.9 bump 成 "1.10"，會被解析成 1.1（比 1.9 還小！）整個比較邏輯會壞掉。小數點後到 9 之後，下一版要跳整數（1.9 → 2.0），不能繼續 +0.1。
 
 ## 本機後端重啟規則
@@ -95,9 +95,9 @@ fortunemusic/
 │   │       ├── FullAnalysisView.vue  # 全握分析（總覽卡 + 類型分析 + 成員統計 + 成員詳細分析三個摺疊面板）
 │   │       ├── FullSpendingView.vue  # 全握花費（建設中，僅佔位）
 │   │       ├── ScrapeView.vue        # 同步工具設定（一鍵連結擴充功能至帳號，失敗時顯示安裝步驟）
-│   │       ├── MaintenanceView.vue   # 維護模式畫面（App.vue 偵測 /status.json 後條件渲染）
+│   │       ├── MaintenanceView.vue   # 維護模式畫面（App.vue 偵測 GET /status 後條件渲染）
 │   │       ├── AdminUsersView.vue       # 使用者管理（模擬畫面）（管理者限定）
-│   │       ├── AdminMaintenanceView.vue # 刪除資料(含預覽) + 抓取紀錄（管理者限定）
+│   │       ├── AdminMaintenanceView.vue # 刪除資料(含預覽) + 維護模式開關 + 抓取紀錄（管理者限定）
 │   │       ├── AdminTitlesView.vue      # 單曲名稱：タイトル未定修正 + 批次登記 + 已知單曲名稱瀏覽（管理者限定）
 │   │       ├── AdminVenuesView.vue      # 場地管理：缺少場地修正 + 批次登記 + 已知場地瀏覽（管理者限定）
 │   │       └── AdminSignEventsView.vue  # 簽名會紀錄（管理者限定）
@@ -228,7 +228,7 @@ LoginView → GET http://localhost:8080/auth/google
 
 ## Chrome 擴充功能
 
-下載：`https://github.com/MaoIsCute/FortuneMusic/raw/main/FTExtension.zip`
+下載：`https://fortunemusic.vercel.app/FTExtension.zip`（見 #130，原本放 repo 根目錄靠 GitHub raw 網址下載，repo 改 private 後改成跟著前端一起部署）
 
 **重新打包 `FTExtension.zip`、版本號更新規則見上方「## Git 操作規則」。**
 
@@ -419,7 +419,7 @@ fortunemusic 的 list page 記錄的是**應募當時**的活動名稱，不會�
 
 ## 維護模式（Maintenance Mode）
 
-`App.vue` 啟動時 fetch `/status.json`（開發環境讀本地檔，正式環境讀 GitHub raw），若 `maintenance === true` 則條件渲染 `MaintenanceView.vue` 顯示 `message`，取代整個畫面。不是 router guard，是在 App.vue 模板層擋下。手動編輯 `status.json` 即可開關，不需重新部署。
+`App.vue` 啟動時打公開端點 `GET /status`（見 #130，原本 dev/prod 分別讀本地檔／GitHub raw 的 `status.json`，改成統一打後端），若 `maintenance === true` 則條件渲染 `MaintenanceView.vue` 顯示 `message`，取代整個畫面。不是 router guard，是在 App.vue 模板層擋下。管理者在 `/admin/maintenance`「維護模式」區塊開關即可即時生效，不需重新部署。
 
 ## 成員資料（src/utils/members.js）
 

@@ -52,7 +52,7 @@ function checkExtensionVersion(res) {
   if (parseFloat(current) < parseFloat(latest)) {
     const banner = document.getElementById('updateBanner')
     banner.innerHTML = `⚠️ 有新版本可用（目前 v${current}，最新 v${latest}），建議重新下載安裝。` +
-      `<a href="https://github.com/MaoIsCute/FortuneMusic/raw/main/FTExtension.zip" target="_blank">立即更新 →</a>`
+      `<a href="https://fortunemusic.vercel.app/FTExtension.zip" target="_blank">立即更新 →</a>`
     banner.style.display = 'block'
   }
 }
@@ -694,11 +694,19 @@ function parseFullApiResults(results, singleNum, group) {
     const eventDate = `${dm[1]}/${parseInt(dm[2])}/${parseInt(dm[3])}`
 
     const session = toHalf(prizeInfo.part || '')
-    const memberName = (prizeInfo.members || [])
-      .map(m => toHalf(m).replace(/[\s　]+/g, '').trim()).filter(Boolean).join('・')
+    // 「全員參加」簽名會（prizeId 例："1004_allsign"）沒有 prizeInfo.members，成員固定寫死
+    // 「全員」；其他情況維持原本邏輯，沒有 members 就當成異常/不完整資料整筆跳過
+    const isAllSign = item.prizeId?.includes('_allsign')
+    const memberName = isAllSign
+      ? '全員'
+      : (prizeInfo.members || [])
+          .map(m => toHalf(m).replace(/[\s　]+/g, '').trim()).filter(Boolean).join('・')
     if (!memberName) continue
 
     const appliedCount = item.count || 0
+    // resultInfo 是 null 代表這場還沒開獎（result: "抽選中"），wonCount 目前只能先當 0，
+    // 用 pending 標記起來讓後端統計知道要排除，不是真的落選
+    const isPending = !item.resultInfo
     const wonCount = parseInt(item.resultInfo?.win || '0')
     const lotteryRound = parseLotteryRound(prizeInfo.times || '')
 
@@ -707,6 +715,7 @@ function parseFullApiResults(results, singleNum, group) {
     if (recordMap[orderId]) {
       recordMap[orderId].applied_count += appliedCount
       recordMap[orderId].won_count     += wonCount
+      if (isPending) recordMap[orderId].pending = true
     } else {
       recordMap[orderId] = {
         order_id:      orderId,
@@ -720,6 +729,7 @@ function parseFullApiResults(results, singleNum, group) {
         member_name:   memberName,
         applied_count: appliedCount,
         won_count:     wonCount,
+        pending:       isPending,
         lottery_round: lotteryRound,
         source_url:    '',
       }

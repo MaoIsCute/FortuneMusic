@@ -550,6 +550,7 @@ func GetAdminSignEvents(c *gin.Context) {
 		MemberName   string  `json:"member_name"`
 		AppliedCount int     `json:"applied_count"`
 		WonCount     int     `json:"won_count"`
+		Pending      bool    `json:"pending"`
 		LotteryRound float64 `json:"lottery_round"`
 	}
 

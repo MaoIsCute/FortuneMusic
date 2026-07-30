@@ -65,10 +65,13 @@
           <template #default="{ row }">{{ row.lottery_round > 0 ? row.lottery_round + '抽' : '—' }}</template>
         </el-table-column>
         <el-table-column prop="applied_count" label="應募" min-width="50" />
-        <el-table-column prop="won_count" label="中選" min-width="50" align="right" />
+        <el-table-column label="中選" min-width="50" align="right">
+          <template #default="{ row }">{{ row.pending ? '—' : row.won_count }}</template>
+        </el-table-column>
         <el-table-column label="中選率" min-width="70" align="right">
           <template #default="{ row }">
-            <span v-if="row.applied_count > 0" :class="rateClass((row.won_count / row.applied_count * 100).toFixed(1))">
+            <span v-if="row.pending" class="text-muted">抽選中</span>
+            <span v-else-if="row.applied_count > 0" :class="rateClass((row.won_count / row.applied_count * 100).toFixed(1))">
               {{ (row.won_count / row.applied_count * 100).toFixed(1) }}%
             </span>
             <span v-else>—</span>
@@ -245,4 +248,5 @@ html.dark .card { background: #1e2030; border-color: #2e3450; box-shadow: 0 2px 
 .rate.high { color: #52c41a; }
 .rate.mid  { color: #faad14; }
 .rate.low  { color: #ff4d4f; }
+.text-muted { color: #999; }
 </style>

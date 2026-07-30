@@ -3,7 +3,7 @@
     <h1 class="page-title">同步工具設定</h1>
     <div v-if="outdated" class="update-banner">
       ⚠️ 你的同步工具版本較舊（v{{ installedVersion }}，最新版 v{{ latestVersion }}），建議重新下載安裝最新版。
-      <a href="https://github.com/MaoIsCute/FortuneMusic/raw/main/FTExtension.zip" target="_blank">立即更新 →</a>
+      <a href="https://fortunemusic.vercel.app/FTExtension.zip" target="_blank">立即更新 →</a>
     </div>
     <!-- 連結前 -->
     <div v-if="statusType !== 'success'" class="setup-card">
@@ -15,7 +15,7 @@
       </el-button>
       <p v-if="statusMsg" :class="['status-msg', statusType]">{{ statusMsg }}</p>
       <div v-if="statusType === 'error' || firstTime" class="install-guide">
-        <a href="https://github.com/MaoIsCute/FortuneMusic/raw/main/FTExtension.zip" target="_blank" class="download-btn">
+        <a href="https://fortunemusic.vercel.app/FTExtension.zip" target="_blank" class="download-btn">
           ⬇️ 下載同步工具
         </a>
         <ol class="install-steps">
@@ -56,7 +56,7 @@ function copy() {
   copied.value = true
   setTimeout(() => { copied.value = false }, 2000)
 }
-import { getScrapeToken } from '../api/index'
+import { getScrapeToken, getStatus } from '../api/index'
 
 const EXTENSION_ID = 'gdclpkfeiocedicokoenhconeoocigeh'
 
@@ -70,24 +70,19 @@ const loading   = ref(false)
 const statusMsg = ref('')
 const statusType = ref('')
 
-// 已安裝的擴充功能版本落後 status.json 記錄的最新版本時，提醒使用者更新
+// 已安裝的擴充功能版本落後後端記錄的最新版本時，提醒使用者更新
 const installedVersion = ref(null)
 const latestVersion    = ref(null)
 const outdated = computed(() =>
   installedVersion.value && latestVersion.value && parseFloat(installedVersion.value) < parseFloat(latestVersion.value)
 )
 
-const STATUS_URL = import.meta.env.DEV
-  ? '/status.json'
-  : 'https://raw.githubusercontent.com/MaoIsCute/FortuneMusic/main/status.json'
-
 onMounted(async () => {
   installedVersion.value = await getExtensionVersion()
   if (!installedVersion.value) return
   try {
-    const res = await fetch(STATUS_URL + '?t=' + Date.now())
-    const data = await res.json()
-    latestVersion.value = data.latest_extension_version || null
+    const res = await getStatus()
+    latestVersion.value = res.data.latest_extension_version || null
   } catch {}
 })
 

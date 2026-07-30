@@ -35,7 +35,7 @@ func GetFullOverallStats(c *gin.Context) {
 		TotalWon     int `json:"total_won"`
 	}
 	db.DB.Model(&models.FullRecord{}).
-		Where("user_id = ?", userID).
+		Where("user_id = ? AND pending = ?", userID, false).
 		Select("COALESCE(SUM(applied_count),0) as total_applied, COALESCE(SUM(won_count),0) as total_won").
 		Scan(&overall)
 
@@ -48,7 +48,7 @@ func GetFullOverallStats(c *gin.Context) {
 	}
 	var byType []TypeVenueRow
 	db.DB.Model(&models.FullRecord{}).
-		Where("user_id = ?", userID).
+		Where("user_id = ? AND pending = ?", userID, false).
 		Select("event_type, venue, SUM(applied_count) as total_applied, SUM(won_count) as total_won, "+
 			"ROUND(SUM(won_count)::numeric / NULLIF(SUM(applied_count),0) * 100, 1) as win_rate").
 		Group("event_type, venue").
@@ -64,7 +64,7 @@ func GetFullOverallStats(c *gin.Context) {
 func GetFullStatsByMember(c *gin.Context) {
 	userID := getUserID(c)
 
-	query := db.DB.Model(&models.FullRecord{}).Where("user_id = ?", userID)
+	query := db.DB.Model(&models.FullRecord{}).Where("user_id = ? AND pending = ?", userID, false)
 	if grp := c.Query("group"); grp != "" {
 		query = query.Where(`"group" = ?`, grp)
 	}
@@ -109,7 +109,7 @@ func GetFullDetailStats(c *gin.Context) {
 		TotalWon     int     `json:"total_won"`
 	}
 
-	query := db.DB.Model(&models.FullRecord{}).Where("user_id = ?", userID)
+	query := db.DB.Model(&models.FullRecord{}).Where("user_id = ? AND pending = ?", userID, false)
 	if m := c.Query("member"); m != "" {
 		query = query.Where("member_name LIKE ?", "%"+m+"%")
 	}
@@ -142,7 +142,7 @@ func GetFullStatsByRegion(c *gin.Context) {
 		WinRate      float64 `json:"win_rate"`
 	}
 
-	query := db.DB.Model(&models.FullRecord{}).Where("user_id = ? AND event_type = '実体'", userID)
+	query := db.DB.Model(&models.FullRecord{}).Where("user_id = ? AND event_type = '実体' AND pending = ?", userID, false)
 	if grp := c.Query("group"); grp != "" {
 		query = query.Where(`"group" = ?`, grp)
 	}
@@ -171,7 +171,7 @@ func GetFullStatsBySingle(c *gin.Context) {
 		WinRate      float64 `json:"win_rate"`
 	}
 	var rows []Row
-	q := db.DB.Model(&models.FullRecord{}).Where("user_id = ?", userID)
+	q := db.DB.Model(&models.FullRecord{}).Where("user_id = ? AND pending = ?", userID, false)
 	if grp := c.Query("group"); grp != "" {
 		q = q.Where(`full_records."group" = ?`, grp)
 	}
