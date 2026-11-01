@@ -8,6 +8,9 @@ frontend/.env.local
 backend/fortune-tracker
 backend/tmp/
 
+# logs
+*.log
+
 # Node
 frontend/node_modules/
 frontend/dist/

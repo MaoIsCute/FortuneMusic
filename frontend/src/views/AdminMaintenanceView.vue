@@ -183,6 +183,42 @@
         <div class="hint-text">開啟後，所有使用者（含你自己）進站都會立刻被導向維護畫面，直到關閉為止，不需要重新部署。</div>
       </el-collapse-item>
 
+      <!-- 全握價格設定 -->
+      <el-collapse-item name="prices">
+        <template #title><span class="collapse-title">全握價格設定</span></template>
+        <p class="sub-text">
+          登記「從某張單曲開始，握手券單價變成多少」，不用每張單曲都登記——之後新單曲只要還沒漲價，
+          會自動沿用最新的級距。一行一筆，格式：<code>團體代碼,起始單曲號,單價</code>。
+        </p>
+        <p class="sub-text">
+          範例：
+          <el-button size="small" text @click="copyExample(PRICE_TIER_EXAMPLE)">📋 複製範例</el-button>
+        </p>
+        <pre class="example-block">{{ PRICE_TIER_EXAMPLE }}</pre>
+        <el-input
+          v-model="bulkPriceText"
+          type="textarea"
+          :rows="4"
+          placeholder="nogizaka46,1,1900&#10;nogizaka46,34,2000"
+        />
+        <el-button type="primary" :loading="bulkPriceLoading" style="margin-top:8px" @click="submitBulkPriceTiers">批次送出</el-button>
+
+        <p class="sub-text" style="margin-top:20px">目前已登記的級距：</p>
+        <div v-if="priceTiers.length === 0" class="empty">尚無登記</div>
+        <el-table v-else table-layout="auto" :data="priceTiers" stripe size="small">
+          <el-table-column label="團體" min-width="100">
+            <template #default="{ row }">{{ groupLabel(row.group) }}</template>
+          </el-table-column>
+          <el-table-column prop="from_single_number" label="起始單曲號" min-width="90" />
+          <el-table-column prop="unit_price" label="單價" min-width="80" />
+          <el-table-column label="" min-width="60">
+            <template #default="{ row }">
+              <el-button link type="danger" size="small" @click="removePriceTier(row)">刪除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-collapse-item>
+
       <!-- 抓取紀錄 -->
       <el-collapse-item name="logs">
         <template #title>
@@ -219,7 +255,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, deleteUserSignEvents, deleteUserPrizes, previewUserRecords, previewUserFullRecords, previewUserPurchases, previewUserSignEvents, previewUserPrizes, getAdminScrapeLogs, normalizeMemberNames, getStatus, updateStatus } from '../api/index'
+import { getAdminUsers, deleteUserRecords, deleteUserFullRecords, deleteUserPurchases, deleteUserSignEvents, deleteUserPrizes, previewUserRecords, previewUserFullRecords, previewUserPurchases, previewUserSignEvents, previewUserPrizes, getAdminScrapeLogs, normalizeMemberNames, getStatus, updateStatus, getPriceTiers, bulkSetPriceTiers, deletePriceTier } from '../api/index'
 
 const GROUP_LABELS = { nogizaka46: '乃木坂46', sakurazaka46: '櫻坂46', hinatazaka46: '日向坂46' }
 function groupLabel(g) { return GROUP_LABELS[g] || g || '—' }
@@ -245,7 +281,7 @@ function unitCount(code, count) {
   return Math.round(count / perUnit)
 }
 
-const openSections = ref(['delete', 'fix', 'maintenance', 'logs'])
+const openSections = ref(['delete', 'fix', 'maintenance', 'prices', 'logs'])
 const normLoading = ref(false)
 const normResult  = ref(null)
 
@@ -405,10 +441,75 @@ async function loadScrapeLogs() {
   } catch {}
 }
 
+async function copyExample(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已複製到剪貼簿')
+  } catch {
+    ElMessage.error('複製失敗，請手動選取複製')
+  }
+}
+
+const PRICE_TIER_EXAMPLE = 'nogizaka46,1,1900\nnogizaka46,34,2000'
+const priceTiers        = ref([])
+const bulkPriceText     = ref('')
+const bulkPriceLoading  = ref(false)
+
+async function loadPriceTiers() {
+  try {
+    const res = await getPriceTiers()
+    priceTiers.value = res.data ?? []
+  } catch {}
+}
+
+async function submitBulkPriceTiers() {
+  const lines = bulkPriceText.value.split('\n').map(l => l.trim()).filter(Boolean)
+  if (lines.length === 0) {
+    ElMessage.warning('請輸入至少一行')
+    return
+  }
+  const tiers = []
+  for (const line of lines) {
+    const parts = line.split(',')
+    if (parts.length < 3) {
+      ElMessage.error(`格式錯誤：${line}`)
+      return
+    }
+    const [group, fromSingle, price] = parts.map(p => p.trim())
+    tiers.push({ group, from_single_number: parseInt(fromSingle) || 0, unit_price: parseInt(price) || 0 })
+  }
+
+  bulkPriceLoading.value = true
+  try {
+    const res = await bulkSetPriceTiers(tiers)
+    ElMessage.success(`已登記 ${res.data.applied} 筆`)
+    bulkPriceText.value = ''
+    await loadPriceTiers()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '登記失敗')
+  } finally {
+    bulkPriceLoading.value = false
+  }
+}
+
+async function removePriceTier(row) {
+  try {
+    await ElMessageBox.confirm(`確定要刪除「${groupLabel(row.group)} 從 ${row.from_single_number} 單開始 ${row.unit_price} 元」這筆級距？`, '刪除確認', { confirmButtonText: '確定刪除', cancelButtonText: '取消', type: 'warning' })
+  } catch { return }
+  try {
+    await deletePriceTier(row.id)
+    ElMessage.success('已刪除')
+    await loadPriceTiers()
+  } catch {
+    ElMessage.error('刪除失敗')
+  }
+}
+
 onMounted(() => {
   loadUsers()
   loadScrapeLogs()
   loadStatus()
+  loadPriceTiers()
 })
 </script>
 
@@ -445,6 +546,18 @@ onMounted(() => {
 .fix-row { display: flex; align-items: center; gap: 16px; }
 .fix-desc { font-size: 13px; color: #555; flex: 1; }
 .maintenance-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 10px; }
+.example-block {
+  font-family: monospace;
+  font-size: 12px;
+  background: #f5f7fa;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 0 10px;
+  white-space: pre;
+  overflow-x: auto;
+}
+html.dark .example-block { background: #252840; border-color: #3a3f5c; }
 .norm-result { margin-top: 10px; font-size: 13px; color: #059669; }
 .sub-text { font-size: 11px; color: #999; }
 .tag-ok    { color: #059669; font-size: 13px; }

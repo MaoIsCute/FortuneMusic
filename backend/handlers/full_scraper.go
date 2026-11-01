@@ -185,6 +185,9 @@ func PushFullRecords(c *gin.Context) {
 			if existing.WonCount != r.WonCount {
 				changed["won_count"] = r.WonCount
 			}
+			if existing.Pending != r.Pending {
+				changed["pending"] = r.Pending
+			}
 			if correctedName := resolveSingleName(existing.Group, existing.SingleNumber, r.SingleName); existing.SingleName != correctedName {
 				changed["single_name"] = correctedName
 			}
