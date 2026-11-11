@@ -54,6 +54,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		scrape.POST("/full/push", handlers.PushFullRecords)
 		scrape.POST("/check-entries", handlers.CheckEntries)
 		scrape.POST("/purchases/push", handlers.PushPurchases)
+		scrape.POST("/tickets/push", handlers.PushTicketHoldings)
 		scrape.POST("/log", handlers.PushScrapeLog)
 	}
 
@@ -107,6 +108,8 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/full/stats/detail", handlers.GetFullDetailStats)
 		api.GET("/full/stats/by-region", handlers.GetFullStatsByRegion)
 		api.GET("/full/spending", handlers.GetFullSpendingTree)
+		api.GET("/online-calc/singles", handlers.GetOnlineCalcSingles)
+		api.GET("/online-calc/summary", handlers.GetOnlineCalcSummary)
 		api.GET("/purchases", handlers.GetPurchases)
 		api.GET("/purchases/tree", handlers.GetPurchaseTree)
 		api.GET("/purchases/stats/overall", handlers.GetPurchaseOverallStats)

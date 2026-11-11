@@ -10,6 +10,7 @@
           <a @click="go('/records')">個握紀錄</a>
           <a @click="go('/spending')">個握花費</a>
           <a @click="go('/records/analysis')">個握分析</a>
+          <a @click="go('/online-calc')">付款模擬</a>
         </div>
       </div>
 
@@ -53,7 +54,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
 
-const APP_VERSION = '1.8'
+const APP_VERSION = '2.0'
 
 const router = useRouter()
 const route  = useRoute()
@@ -61,7 +62,7 @@ const themeStore = useThemeStore()
 const auth = useAuthStore()
 const isDark = computed(() => themeStore.isDark)
 const isAdmin = computed(() => !!auth.user?.is_admin)
-const isRecordsActive = computed(() => ['/records', '/spending', '/records/analysis'].includes(route.path))
+const isRecordsActive = computed(() => ['/records', '/spending', '/records/analysis', '/online-calc'].includes(route.path))
 const isFullActive    = computed(() => ['/full', '/full/spending', '/full/analysis', '/full/sign-events', '/full/prizes'].includes(route.path))
 const isAdminActive   = computed(() => route.path.startsWith('/admin'))
 

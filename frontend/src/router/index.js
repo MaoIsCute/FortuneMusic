@@ -13,6 +13,7 @@ const routes = [
   { path: '/full/sign-events', name: 'FullSignEvents', component: () => import('../views/FullSignEventsView.vue') },
   { path: '/full/prizes', name: 'FullPrizes', component: () => import('../views/FullPrizesView.vue') },
   { path: '/spending', name: 'Spending', component: () => import('../views/SpendingView.vue') },
+  { path: '/online-calc', name: 'OnlineCalc', component: () => import('../views/OnlineCalcView.vue') },
   { path: '/scrape', name: 'Scrape', component: () => import('../views/ScrapeView.vue') },
   { path: '/admin', redirect: '/admin/users' },
   { path: '/admin/users', name: 'AdminUsers', component: () => import('../views/AdminUsersView.vue'), meta: { admin: true } },

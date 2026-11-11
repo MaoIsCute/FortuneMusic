@@ -10,7 +10,7 @@ import (
 // MinExtensionVersion 是後端接受同步請求的最低擴充功能版本。
 // 每次提高門檻時，跟 extension/manifest.json 的 version 一起在同一個 commit 裡改
 // （見 CLAUDE.md「Git 操作規則」），這樣兩個版本號才不會漏改其中一個。
-const MinExtensionVersion = "2.1"
+const MinExtensionVersion = "2.8"
 
 // LatestExtensionVersion 是目前擴充功能的最新版本。原本「有新版本」的提醒只做在網站
 // /scrape 頁（見 CLAUDE.md #97），但使用者連結過帳號後幾乎不會再進那個頁面，只會直接在
@@ -18,7 +18,7 @@ const MinExtensionVersion = "2.1"
 // popup.js 的 backendFetch() 統一比對並顯示提醒，才會在使用者實際操作的路徑上被看到；
 // 網站的 GetStatus 也是回傳這個常數，兩邊共用同一個來源。
 // 每次 bump manifest.json 版本號時，這裡要一起改成同一個數字。
-const LatestExtensionVersion = "2.7"
+const LatestExtensionVersion = "2.8"
 
 // ExtensionVersionRequired 擋掉版本過舊（或完全沒帶版本號，代表是這個機制上線前的舊擴充功能）的同步請求，
 // 避免舊版持續送進已知有問題的資料，需要事後再花力氣 migration 修正；同時在每個回應都附上目前最新版本號

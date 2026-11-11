@@ -56,7 +56,8 @@ fortunemusic/
 │   │   ├── purchase.go           # 購入花費記錄（lottery_round int，applied_at，item_key 唯一索引，group）
 │   │   ├── scrape_log.go         # 抓取記錄（type, new_count, skip_count, error, duration_sec）
 │   │   ├── title.go              # 單曲名稱主表（Title model，對應 DB 表 titles，(group, single_number) 複合唯一鍵 → single_name，供自動套用）
-│   │   └── venue.go              # 場地對照表（Venue model，對應 DB 表 venues，(group, single_number, event_date) 複合唯一鍵 → venue_name，供自動套用）
+│   │   ├── venue.go              # 場地對照表（Venue model，對應 DB 表 venues，(group, single_number, event_date) 複合唯一鍵 → venue_name，供自動套用）
+│   │   └── ticket_holding.go     # TicketHolding（券面保有数快照）+ UnpaidApply（未付款応募番号快照），供付款模擬
 │   ├── middleware/auth.go        # JWT 驗證（claims 含 userID + email）
 │   ├── handlers/
 │   │   ├── auth.go               # Google OAuth → opaque code → JWT + refresh token
@@ -64,6 +65,8 @@ fortunemusic/
 │   │   ├── scraper.go            # TriggerScrape、PublicScrape、PushRecords（批次查重+批次寫入）、CheckOrders、UpdateTitles
 │   │   ├── full_scraper.go       # PushFullRecords（全握+簽名會共用，批次查重+批次寫入）、GetFullRecords、GetSignEvents
 │   │   ├── full_stats.go         # GetFullOverallStats、GetFullStatsByMember、GetFullStatsBySingle、GetFullDetailStats（venue 列入 GROUP BY）
+│   │   ├── online_calc.go        # 付款模擬：GetOnlineCalcSingles（各團體最新單曲）、GetOnlineCalcSummary（券面保有数當已確定 + 未付款中選單格子明細）
+│   │   ├── ticket_scraper.go     # PushTicketHoldings（券面保有数 + 未付款応募番号快照，整份覆蓋）
 │   │   ├── admin.go              # GetTitleIssues、FixSingleTitle、BulkSetTitles、GetAdminUsers、Preview/Delete User{Records,FullRecords,Purchases,SignEvents}、GetAdminSignEvents
 │   │   ├── purchase_scraper.go   # CheckEntries、PushPurchases（批次查重+批次寫入）、GetPurchases、GetPurchaseTree、購入統計
 │   │   ├── scrape_log.go         # PushScrapeLog、GetAdminScrapeLogs
@@ -91,6 +94,7 @@ fortunemusic/
 │   │       ├── RecordsView.vue       # 個握紀錄列表
 │   │       ├── RecordsAnalysisView.vue # 個握分析（建設中，僅佔位）
 │   │       ├── SpendingView.vue      # 個握花費統計（單曲→抽次→成員樹狀）
+│   │       ├── OnlineCalcView.vue    # 付款模擬（券面保有数 + 勾選未付款中選單 → 每天×每部×每成員張數，券面頁配色）
 │   │       ├── FullView.vue          # 全握紀錄列表（含 group/member/type/venue/single/round 篩選）
 │   │       ├── FullAnalysisView.vue  # 全握分析（總覽卡 + 類型分析 + 成員統計 + 成員詳細分析三個摺疊面板）
 │   │       ├── FullSpendingView.vue  # 全握花費（建設中，僅佔位）
@@ -158,6 +162,7 @@ fortunemusic/
 | POST | `/scrape/full/push` | ScrapeToken | 接受擴充功能推送的全握記錄與簽名會記錄（依 order_id 是否含 `_sign` 分流，批次查重） |
 | POST | `/scrape/check-entries` | ScrapeToken | 回傳 entry ID 清單中哪些是新的（購入用） |
 | POST | `/scrape/purchases/push` | ScrapeToken | 接受擴充功能推送的購入記錄（批次查重） |
+| POST | `/scrape/tickets/push` | ScrapeToken | 接受擴充功能推送的券面保有数（每張單曲整份覆蓋）+ 未付款応募番号清單（`unpaid_apply_seqs`，null 表示沒讀到、不覆蓋） |
 | POST | `/scrape/log` | ScrapeToken | 記錄一次抓取操作結果（type/new_count/skip_count/error/duration_sec） |
 | GET | `/api/purchases` | JWT | 購入記錄列表（分頁） |
 | GET | `/api/purchases/tree` | JWT | 購入樹狀統計（團體→單曲→抽次→成員，各層都依 min applied_at DESC） |
@@ -169,6 +174,8 @@ fortunemusic/
 | GET | `/api/full/stats/by-member` | JWT | 全握依成員統計 |
 | GET | `/api/full/stats/by-single` | JWT | 全握依單曲統計 |
 | GET | `/api/full/stats/detail` | JWT | 全握依 (single, venue, session, member, lottery_round) 詳細分析，供成員詳細分析表格使用（venue 列入 GROUP BY，同張單不同場地分開計） |
+| GET | `/api/online-calc/singles` | JWT | 每個團體最新的單曲（有中選紀錄或券面快照），依最晚活動日排序 |
+| GET | `/api/online-calc/summary` | JWT | 一張單曲的付款模擬素材：券面保有数（已確定）+ 未付款中選單的格子明細（加總由前端做，勾選才能即時） |
 
 ### Frontend
 
@@ -181,6 +188,7 @@ fortunemusic/
 | `/records` | 個握紀錄列表 | 需登入，會觸發 data store check() |
 | `/records/analysis` | 個握分析（建設中） | 需登入 |
 | `/spending` | 個握花費統計 | 需登入，會觸發 data store check() |
+| `/online-calc` | 付款模擬（券面已確定張數 + 勾選未付款中選單 → 每天每部每成員總張數） | 需登入 |
 | `/full` | 全握紀錄列表 | 需登入 |
 | `/full/spending` | 全握花費（建設中） | 需登入 |
 | `/full/analysis` | 全握分析（總覽/類型/成員/成員詳細） | 需登入 |
@@ -317,6 +325,28 @@ DOM 結構（實測）：
 **event_type**：日期行含 `@` → `実体`；否則 → `線上`
 
 **venue**：取 `@` 後的原始文字 `trim()`（例：「幕張メッセ」），**沒有**簡化成「東京/地方」——之前文件寫錯，目前 `popup.js` 的 `dateStr.slice(atIdx + 1).trim()` 就是最終存進 DB 的值，可能是任意長度的場地全名，UI 顯示場地的表格欄位需要給足夠寬度（或允許換行），不能假設只有 2 個字。自 #101 起，切之前會先對整段 `dateStr` 套用 `toHalf()`，所以場地文字裡如果含全形符號/數字會被轉成半形（跟個握/花費一致），`@` 本身也是先轉成半形 `@` 再切
+
+### forTUNE meets 券面頁 / 抽選履歴 的頁面格式（實地確認過）
+
+二抽付款模擬功能（`/online-calc`）的來源考據，2026-11-01 用 CDP 連上登入中的 Chrome 直接讀頁面確認：
+
+**`/mypage/online_handshake_detail/{id}/`（forTUNE meets チケット詳細，一抽結果的券面）**
+```
+h3.hdg03                                   ← 【抽選応募】乃木坂46 43rdシングル『君ロス』発売記念 オンラインミート＆グリート（個別トーク会）
+div.tgl02.js_eventSelect                   ← 每個日期一塊摺疊面板
+  button.tglHook      2026年12月6日（日）    ← 日期（全形）
+  table
+    thead  時間帯 / メンバー / 保有数 / 使用数
+    tbody  第2部 12:00～13:30 | 奥田いろは | 3枚 | 0枚
+```
+**自 #132 起個握同步會抓這一頁**（`scrapeTicketHoldings()`，存進 `ticket_holdings`）。早期以為 `records.won_count` 就能重現保有数，實測不對：保有数是**所有已付款抽次的總和**——43單每一格的保有数都剛好等於「一抽中選 + 已付款的二抽中選」（117 = 45 + 72），所以付款模擬直接拿它當「已確定」，不用自己猜付了哪幾抽。券面一張單曲只有一頁（列表頁 `/mypage/online_handshake_list/`），標題文字可解析出團體與單曲號。
+
+**`/mypage/apply_list/`（抽選履歴）每一列的 td**，現有 `scrapeListPage()` 只用了 `応募日時`（取年月）跟 `td.tdEvent`（單曲/抽次/團體），**以下三個欄位讀得到但沒有存**：
+- `応募番号`（例 `76-4105-3448305-00`）——使用者眼中真正的「單號」，中間那段 `3448305` 對應 `apply_detail` 的 id `13448305`（差一個前綴 `1`）
+- `応募合計金額`（例 `14,400円`）= Σ(応募数 × 単価)
+- `抽選状況` / `抽選結果`（`抽選済み` + `当選` / `一部当選` / `落選`）——目前只能靠 `won_count` 間接推斷
+
+**`/mypage/apply_detail/{id}/` 的項目列還有一欄 `単価`**（例 `単価1,200円`，在商品名和 `td.tdQua` 之間），`fetchOrderDetails()` 只取了兩個 `td.tdQua`（応募数/当選数）沒取它。如果之後要讓付款模擬同時算出金額，抓這一欄比用 `price_tier` 回推準確得多——`price_tier` 是為全握的握手券單價設計的（group + 起始單號級距），拿來套個握線上 Talk 會算錯。
 
 ### 購入花費爬蟲（fetchEntryDetailItems）
 
@@ -681,3 +711,12 @@ ADMIN_EMAIL=...
     - `onMounted` 原本不管使用者要看哪個分頁，「個握總表」「全握總表」兩份統計一次抓完才放行（`pageLoaded`），改成只先抓「目前作用中的分頁」（預設個握總表），另一分頁的資料延後到使用者真的點過去該分頁標籤（`watch(activeTab, ...)`）才觸發抓取；新增 `rLoaded`/`fLoaded`（該分頁資料是否已抓完）+ `rLoading`/`fLoading`（該分頁是否正在抓取中）兩組旗標，前者擋「已經抓過的分頁再切回去不會重抓」，後者擋「還在抓的時候使用者快速切換分頁又切回來，觸發同一分頁重複打 API」的邊界情況
     - Template 對應改成兩個分頁內容各自用 `v-loading="!rLoaded"`／`v-loading="!fLoaded"` 蓋自己的統計區塊，而不是共用一個全站等待的 `pageLoaded`——分頁標籤、上方「新手上路」等不依賴統計 API 的靜態內容不再被拖著一起等
     - 用瀏覽器 Network 面板驗證過：一進頁面只有個握總表相關的 API 被呼叫（`/api/global/stats/*`），全握總表的 `/api/global/full/stats/*` 完全沒發；點過去全握總表分頁才觸發那三支且幾乎同時發出（平行生效）；切回個握總表沒有任何 API 重打（`rLoaded` 生效）
+131. forTUNE meets（`ticket.fortunemeets.app`）2026/10 改版成 JWT 驗證，全握同步按下去顯示「無法取得使用者 ID」→ 原本靠 localStorage 的 `lscache-id` 當 `x-user-id` header 呼叫 `ticket-api.fortunemeets.app/user/history2`，改版後 `lscache-id` 消失，改存 `lscache-accessToken`（JWT）＋`lscache-userId`（email），網站自己的 `bundle.js` 全部改成送 `Authorization: Bearer <accessToken>`（整份 bundle 已經沒有 `x-user-id`），照舊方式打 API 會回 401 `認証情報がありません`。修正：「全握同步」改成只確認 `lscache-accessToken` 存在；「開始全握抓取」注入的 fetch 每次在分頁內現讀 `JSON.parse(localStorage.getItem(lscache-accessToken))`（token 會過期，不能存舊值），改送 `Authorization: Bearer`、不再送 `x-user-id`。舊版擴充功能全握同步完全不能用，擴充功能升級至 v2.8，`MinExtensionVersion` 一併提高到 2.8 強制更新。
+132. 「二抽付款模擬」改成通用的「付款模擬」（不限二抽：剛開完第 N 抽時，模擬「前面已付款的 + 第 N 抽中選的」），並改成接近 forTUNE meets 券面頁的樣式：
+    - **已確定 = 券面保有数**：個握同步（`scrapeBtn`）最後多一步注入 `scrapeTicketHoldings()`（自我包含，見 #100），抓 `online_handshake_list` → 每張單曲的 `online_handshake_detail`（日期、部、時刻、成員、保有数、使用数），推到新端點 `POST /scrape/tickets/push`，存進新表 `ticket_holdings`（每張單曲整份覆蓋，是快照不是歷史）。這一步失敗只在操作記錄顯示警告，不算整次同步失敗
+    - **可勾的單 = 還沒付款的中選單**：付過款的單已經算進保有数，不能再勾（第一版只取「最新一抽的中選單」，實測 43單二抽已全部付款，算成 117+72=189 重複計算，正確是 117）。付款紀錄（`entry_list`，就是個握花費抓的那頁）會把多張單合併成一筆付清（86,400円 = 5 張二抽單），無法反推哪張單付了，所以改讀「お支払い方法の未登録一覧」（`/mypage/payment_request_list/`），用正規表達式掃整頁文字的応募番号（`76-4105-3448305-00`），中間那段存進新表 `unpaid_applies`，後端用 `order_id` 結尾比對（`13448305` 結尾是 `3448305`）判斷未付款；讀取失敗時送 `null`（後端不覆蓋），讀到空清單送 `[]`（清空）。**已知未實測**：有未付款單時該頁的實際版面還沒看過（實測當下清單是空的），靠的是応募番号格式掃描不依賴版面
+    - 沒有券面快照時（舊版擴充功能/還沒同步過）退回用「最新一抽之前的当選数」推估已確定、最新一抽全部中選單可勾，頁面顯示警告
+    - 單曲不放下拉，每個團體只看最新單曲（`GetOnlineCalcSingles`），多團體才顯示切換；單張明細載入失敗只在結果區塊顯示錯誤，不會整頁換成 ErrorState 讓人無法切換
+    - 券面樣式：日期摺疊面板收合灰底（#ebebeb）、展開薄荷綠（#55e3cb，字 #005947，框 #1ddab6），表格標頭薄荷綠、置中、「N枚」，欄位 時間帯／メンバー／已確定／本次／合計；時刻只有券面有，本次新增的格子用同一天同一部的時刻補
+    - 擴充功能升級至 v2.8（同 #131），前端 `APP_VERSION` 1.9 → 2.0，NavBar 改名「付款模擬」
+    - 驗證方式：用獨立 profile 開 Chrome（`--remote-debugging-port=9222 --user-data-dir=C:Userssam66.fortune-chrome-debug --enable-unsafe-extension-debugging`，Chrome 137+ 不支援 `--load-extension`，改用 CDP `Extensions.loadUnpacked` 載入，ID 因為 manifest 有 `key` 所以跟正式一致），使用者手動登入後由 CDP 操作 popup 實際跑個握同步、讀頁面驗證

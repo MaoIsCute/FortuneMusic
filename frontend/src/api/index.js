@@ -109,6 +109,8 @@ export const getFullStatsBySingle = (params = {}) => api.get('/api/full/stats/by
 export const getFullDetailStats = (params = {}) => api.get('/api/full/stats/detail', { params })
 export const getFullStatsByRegion = (params = {}) => api.get('/api/full/stats/by-region', { params })
 export const getFullSpendingTree = () => api.get('/api/full/spending')
+export const getOnlineCalcSingles = () => api.get('/api/online-calc/singles')
+export const getOnlineCalcSummary = (params = {}) => api.get('/api/online-calc/summary', { params })
 export const getPriceTiers = () => api.get('/api/admin/price-tiers')
 export const bulkSetPriceTiers = (tiers) => api.post('/api/admin/price-tiers/bulk', { tiers })
 export const deletePriceTier = (id) => api.delete(`/api/admin/price-tiers/${id}`)

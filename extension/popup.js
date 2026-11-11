@@ -506,6 +506,92 @@ async function getOrOpenFortuneMusicTab(path) {
   return tab.id
 }
 
+// ─── 券面頁（forTUNE meets チケット詳細）：保有数快照，供付款模擬當「已確定」張數 ─────────────
+// 透過 executeScript 注入 fortunemusic.jp 分頁執行，必須完全自我包含（見 CLAUDE.md #100）。
+// 一張單曲只有一頁券面（不是一張抽選單一頁），列表頁 online_handshake_list 目前只有一兩筆，
+// 每次同步全抓一遍成本很低。只回傳單曲（專輯沒有可靠編號，見 CLAUDE.md「單曲 vs 專輯」）。
+async function scrapeTicketHoldings() {
+  function toHalf(s) {
+    return (s || '').replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  }
+  const sleep = ms => new Promise(r => setTimeout(r, ms))
+  async function fetchDoc(path) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await sleep(4000 * attempt)
+      let res
+      try { res = await fetch(path) } catch { continue }
+      if (res.status === 403) continue
+      if (!res.ok) return { error: `${path} 回應 ${res.status}` }
+      const html = await res.text()
+      if (html.includes('アクセスが集中')) continue
+      return { doc: new DOMParser().parseFromString(html, 'text/html') }
+    }
+    return { error: `${path} 多次重試仍被網站流量限制` }
+  }
+
+  // 還沒付款的中選單：「お支払い方法の未登録一覧」上列的応募番号（76-4105-3448305-00），
+  // 中間那段是抽選單號 apply_detail id 的尾碼（13448305）。付過款的單已經算進券面保有数，
+  // 付款模擬只能讓使用者勾這些還沒付的，否則會重複計算。不依賴版面，直接掃整頁文字比對格式。
+  // 讀取失敗時回傳 null（不是空陣列），讓後端分得出「沒有未付款」跟「不知道」
+  let unpaidApplySeqs = null
+  const unpaid = await fetchDoc('/mypage/payment_request_list/')
+  if (!unpaid.error) {
+    const text = toHalf(unpaid.doc.body?.textContent || '')
+    unpaidApplySeqs = [...new Set([...text.matchAll(/\d{2}-\d{4}-(\d{5,})-\d{2}/g)].map(m => m[1]))]
+  }
+
+  const list = await fetchDoc('/mypage/online_handshake_list/')
+  if (list.error) return { error: list.error }
+
+  const tickets = []
+  const links = [...list.doc.querySelectorAll('a[href*="/mypage/online_handshake_detail/"]')]
+  for (const a of links) {
+    const title = toHalf(a.textContent.trim())
+    const sm = title.match(/(\d+)(st|nd|rd|th)(?:シングル|SG)/)
+    if (!sm) continue
+    let group = ''
+    if (/乃木坂46/.test(title))      group = 'nogizaka46'
+    else if (/櫻坂46/.test(title))   group = 'sakurazaka46'
+    else if (/日向坂46/.test(title)) group = 'hinatazaka46'
+    if (!group) continue
+    const titleM = title.match(/[『「](.+?)[』」]/)
+
+    await sleep(500)
+    const detail = await fetchDoc(a.getAttribute('href'))
+    if (detail.error) return { error: detail.error, tickets, unpaidApplySeqs }
+
+    const slots = []
+    detail.doc.querySelectorAll('.js_eventSelect').forEach(block => {
+      const dm = toHalf(block.querySelector('.tglHook')?.textContent || '').match(/(\d{4})年(\d{1,2})月(\d{1,2})日/)
+      if (!dm) return
+      const eventDate = `${dm[1]}/${dm[2]}/${dm[3]}`
+      block.querySelectorAll('tbody tr').forEach(tr => {
+        const cells = tr.querySelectorAll('th, td')
+        if (cells.length < 4) return
+        const spans = [...cells[0].querySelectorAll('span')].map(s => toHalf(s.textContent).trim())
+        const parts = spans.length ? spans : [toHalf(cells[0].textContent).trim()]
+        const pm = (parts[0] || '').match(/(\d+)部/)
+        if (!pm) return
+        slots.push({
+          event_date:  eventDate,
+          session:     `第${pm[1]}部`,
+          time_range:  parts.slice(1).join('').replace(/\s+/g, ''),
+          member_name: cells[1].textContent.trim(),
+          held_count:  parseInt(toHalf(cells[2].textContent).replace(/[^\d]/g, '')) || 0,
+          used_count:  parseInt(toHalf(cells[3].textContent).replace(/[^\d]/g, '')) || 0,
+        })
+      })
+    })
+    tickets.push({
+      group,
+      single_number: parseInt(sm[1]),
+      single_name:   `${sm[1]}${sm[2]}シングル${titleM ? `『${titleM[1]}』` : ''}`,
+      slots,
+    })
+  }
+  return { tickets, unpaidApplySeqs }
+}
+
 // 步驟一：開啟申請列表分頁（復用已開啟的 fortunemusic 分頁）
 syncBtn.addEventListener('click', async () => {
   await getOrOpenFortuneMusicTab('/mypage/apply_list/')
@@ -636,6 +722,33 @@ scrapeBtn.addEventListener('click', async () => {
       page++
     }
 
+    // 抽選紀錄同步完再順便抓券面保有数（付款模擬的「已確定」張數）。這一步失敗不影響抽選紀錄本身，
+    // 只在操作記錄顯示警告，不算整次同步失敗
+    let ticketWarning = null
+    if (!errorMsg && !isStopping) {
+      updateProgress('個握抽選', 0, 0, '讀取 forTUNE meets 券面（保有数）...')
+      try {
+        const ticketResult = await chrome.scripting.executeScript({
+          target: { tabId: tabs[0].id },
+          func:   scrapeTicketHoldings,
+        })
+        const ticketData = ticketResult[0]?.result
+        if (!ticketData || ticketData.error) {
+          ticketWarning = `券面保有数讀取失敗（${ticketData?.error || '未知錯誤'}），付款模擬的「已確定」張數可能不是最新`
+        } else {
+          const tRes = await backendFetch(`${backendUrl}/scrape/tickets/push`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ scrape_token: scrapeToken, tickets: ticketData.tickets, unpaid_apply_seqs: ticketData.unpaidApplySeqs }),
+          })
+          if (!tRes.ok) ticketWarning = `券面保有数上傳失敗（HTTP ${tRes.status}），付款模擬的「已確定」張數可能不是最新`
+          else if (ticketData.unpaidApplySeqs === null) ticketWarning = "「お支払い方法の未登録一覧」讀取失敗，付款模擬的未付款單可能不是最新"
+        }
+      } catch (e) {
+        ticketWarning = `券面保有数讀取失敗（${e.message}）`
+      }
+    }
+
     // 部分訂單多次重試後仍抓不到（通常是流量限制），不能悄悄放過——
     // 併入既有的「補抓遺漏」佇列並顯示按鈕，讓使用者一眼看到還有幾筆沒抓齊、可以直接點按鈕補
     if (allFailedEntries.length > 0) {
@@ -646,7 +759,7 @@ scrapeBtn.addEventListener('click', async () => {
     }
 
     const elapsed = stopTimer(); hideProgress()
-    addLogEntry('個握抽選', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, buildOrderFetchWarning(allFailedEntries))
+    addLogEntry('個握抽選', totalNew, totalSkipped, errorMsg || null, isStopping, elapsed, combineWarnings(buildOrderFetchWarning(allFailedEntries), ticketWarning))
     await pushScrapeLog(backendUrl, scrapeToken, '個握抽選', totalNew, totalSkipped, techError || errorMsg, elapsed)
     if (!errorMsg && !isStopping) setWaitingMode(false)
   } catch (e) {
@@ -826,7 +939,7 @@ async function openTicketTab(group, num, forceNavigate) {
   return tabId
 }
 
-// 步驟一：開啟 ticket.fortunemeets.app，讀取並儲存 lscache-id
+// 步驟一：開啟 ticket.fortunemeets.app，確認已登入（lscache-accessToken 存在）
 fullSyncBtn.addEventListener('click', async () => {
   const group   = fullGroupEl.value || 'nogizaka46'
   const openNum = parseInt(fullStartEl.value) || parseInt(fullEndEl.value) || 1
@@ -852,13 +965,16 @@ fullSyncBtn.addEventListener('click', async () => {
   })
   const { local, session, cookie } = result[0]?.result ?? {}
 
-  const raw = local?.['lscache-id'] ?? session?.['lscache-id'] ?? null
-  const userId = raw ? raw.replace(/"/g, '') : null
+  // forTUNE meets 2026/10 起改成 JWT 驗證：登入後存 lscache-accessToken（呼叫 API 用 Bearer），
+  // 舊版的 lscache-id 已不存在。這裡只確認已登入，實際 token 每次抓取時在分頁內現讀（會過期）
+  const rawToken = local?.['lscache-accessToken'] ?? null
+  const rawUser  = local?.['lscache-userId'] ?? local?.['lscache-id'] ?? session?.['lscache-id'] ?? null
+  const userId = rawToken ? (rawUser ? rawUser.replace(/"/g, '') : 'token') : null
 
   if (!userId) {
     const fmt = (obj) => Object.entries(obj ?? {}).map(([k, v]) => `${k}: ${String(v).slice(0, 80)}`).join('\n') || '（空）'
     showResult('error',
-      `無法取得使用者 ID。\n\nlocalStorage:\n${fmt(local)}\n\nsessionStorage:\n${fmt(session)}\n\ncookie:\n${(cookie || '（空）').slice(0, 400)}`)
+      `無法取得登入資訊，請先在此分頁登入 forTUNE meets 後再點「全握同步」。\n\nlocalStorage:\n${fmt(local)}\n\nsessionStorage:\n${fmt(session)}\n\ncookie:\n${(cookie || '（空）').slice(0, 400)}`)
     return
   }
 
@@ -894,7 +1010,7 @@ fullScrapeBtn.addEventListener('click', async () => {
 
   // 分頁被關掉（例如使用者關掉網頁、關掉瀏覽器再打開）時，之前存的 userId 還在、session cookie
   // 通常也還有效，只是缺一個活著的分頁讓 fetch 用瀏覽器 session 執行——自動重開，不用使用者
-  // 手動再點一次「全握同步」重新走一次讀取 lscache-id 的流程
+  // 手動再點一次「全握同步」重新走一次確認登入的流程
   const tabId = await openTicketTab(group, startNum)
 
   fullScrapeBtn.disabled    = true
@@ -923,10 +1039,14 @@ fullScrapeBtn.addEventListener('click', async () => {
       try {
         const execResult = await chrome.scripting.executeScript({
           target: { tabId },
-          func: async (uid, event) => {
+          func: async (event) => {
             try {
+              // 自我包含（會被 executeScript 注入執行，見 #100）：每次現讀 token，避免用到過期的值
+              let token = null
+              try { token = JSON.parse(localStorage.getItem('lscache-accessToken')) } catch {}
+              if (!token) return { status: 401, body: 'no lscache-accessToken' }
               const res = await fetch('https://ticket-api.fortunemeets.app/user/history2', {
-                headers: { 'x-user-id': uid, 'x-artist-event': event },
+                headers: { 'x-artist-event': event, 'Authorization': `Bearer ${token}` },
               })
               const body = await res.text()
               return { status: res.status, body }
@@ -934,7 +1054,7 @@ fullScrapeBtn.addEventListener('click', async () => {
               return { status: 0, body: e.message }
             }
           },
-          args: [userId, artistEvent],
+          args: [artistEvent],
         })
         apiResult = execResult[0]?.result
       } catch (e) {
